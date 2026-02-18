@@ -8,8 +8,8 @@ defmodule JidoWorkflow.Workflow.Validator do
   alias JidoWorkflow.Workflow.Definition.{
     Channel,
     Input,
-    Return,
     RetryPolicy,
+    Return,
     Settings,
     Step,
     Trigger
@@ -87,48 +87,17 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp validate_inputs(inputs, path, errors) when is_list(inputs) do
-    Enum.with_index(inputs)
+    inputs
+    |> Enum.with_index()
     |> Enum.reduce({[], errors}, fn {input, index}, {acc, err_acc} ->
       current = path ++ [Integer.to_string(index)]
 
-      if is_map(input) do
-        {name, err_acc} =
-          required_string(input, :name, current ++ ["name"], nil, "name is required", err_acc)
+      case normalize_input(input, current, err_acc) do
+        {nil, next_errors} ->
+          {acc, next_errors}
 
-        {type, err_acc} =
-          required_string(input, :type, current ++ ["type"], nil, "type is required", err_acc)
-
-        err_acc =
-          if type && type not in @input_types do
-            error(
-              err_acc,
-              current ++ ["type"],
-              :invalid_value,
-              "must be one of: #{Enum.join(@input_types, ", ")}"
-            )
-          else
-            err_acc
-          end
-
-        {required, err_acc} =
-          optional_boolean(input, :required, current ++ ["required"], false, err_acc)
-
-        {default, _err_acc} = {get(input, :default), err_acc}
-
-        {description, err_acc} =
-          optional_string(input, :description, current ++ ["description"], err_acc)
-
-        normalized = %Input{
-          name: name || "",
-          type: type || "",
-          required: required,
-          default: default,
-          description: description
-        }
-
-        {[normalized | acc], err_acc}
-      else
-        {acc, error(err_acc, current, :invalid_type, "input must be a map")}
+        {normalized, next_errors} ->
+          {[normalized | acc], next_errors}
       end
     end)
     |> then(fn {normalized, err_acc} -> {Enum.reverse(normalized), err_acc} end)
@@ -138,52 +107,45 @@ defmodule JidoWorkflow.Workflow.Validator do
     {[], error(errors, path, :invalid_type, "inputs must be a list")}
   end
 
+  defp normalize_input(input, path, errors) when is_map(input) do
+    {name, errors} =
+      required_string(input, :name, path ++ ["name"], nil, "name is required", errors)
+
+    {type, errors} =
+      required_string(input, :type, path ++ ["type"], nil, "type is required", errors)
+
+    errors = maybe_add_inclusion_error(errors, type, @input_types, path ++ ["type"])
+    {required, errors} = optional_boolean(input, :required, path ++ ["required"], false, errors)
+    default = get(input, :default)
+    {description, errors} = optional_string(input, :description, path ++ ["description"], errors)
+
+    normalized = %Input{
+      name: name || "",
+      type: type || "",
+      required: required,
+      default: default,
+      description: description
+    }
+
+    {normalized, errors}
+  end
+
+  defp normalize_input(_input, path, errors) do
+    {nil, error(errors, path, :invalid_type, "input must be a map")}
+  end
+
   defp validate_triggers(triggers, path, errors) when is_list(triggers) do
-    Enum.with_index(triggers)
+    triggers
+    |> Enum.with_index()
     |> Enum.reduce({[], errors}, fn {trigger, index}, {acc, err_acc} ->
       current = path ++ [Integer.to_string(index)]
 
-      if is_map(trigger) do
-        {type, err_acc} =
-          required_string(trigger, :type, current ++ ["type"], nil, "type is required", err_acc)
+      case normalize_trigger(trigger, current, err_acc) do
+        {nil, next_errors} ->
+          {acc, next_errors}
 
-        err_acc =
-          if type && type not in @trigger_types do
-            error(
-              err_acc,
-              current ++ ["type"],
-              :invalid_value,
-              "must be one of: #{Enum.join(@trigger_types, ", ")}"
-            )
-          else
-            err_acc
-          end
-
-        {patterns, err_acc} =
-          optional_string_list(trigger, :patterns, current ++ ["patterns"], err_acc)
-
-        {events, err_acc} = optional_string_list(trigger, :events, current ++ ["events"], err_acc)
-
-        {schedule, err_acc} =
-          optional_string(trigger, :schedule, current ++ ["schedule"], err_acc)
-
-        {command, err_acc} = optional_string(trigger, :command, current ++ ["command"], err_acc)
-
-        {debounce_ms, err_acc} =
-          optional_integer(trigger, :debounce_ms, current ++ ["debounce_ms"], err_acc)
-
-        normalized = %Trigger{
-          type: type || "",
-          patterns: patterns,
-          events: events,
-          schedule: schedule,
-          command: command,
-          debounce_ms: debounce_ms
-        }
-
-        {[normalized | acc], err_acc}
-      else
-        {acc, error(err_acc, current, :invalid_type, "trigger must be a map")}
+        {normalized, next_errors} ->
+          {[normalized | acc], next_errors}
       end
     end)
     |> then(fn {normalized, err_acc} -> {Enum.reverse(normalized), err_acc} end)
@@ -193,125 +155,47 @@ defmodule JidoWorkflow.Workflow.Validator do
     {[], error(errors, path, :invalid_type, "triggers must be a list")}
   end
 
+  defp normalize_trigger(trigger, path, errors) when is_map(trigger) do
+    {type, errors} =
+      required_string(trigger, :type, path ++ ["type"], nil, "type is required", errors)
+
+    errors = maybe_add_inclusion_error(errors, type, @trigger_types, path ++ ["type"])
+    {patterns, errors} = optional_string_list(trigger, :patterns, path ++ ["patterns"], errors)
+    {events, errors} = optional_string_list(trigger, :events, path ++ ["events"], errors)
+    {schedule, errors} = optional_string(trigger, :schedule, path ++ ["schedule"], errors)
+    {command, errors} = optional_string(trigger, :command, path ++ ["command"], errors)
+
+    {debounce_ms, errors} =
+      optional_integer(trigger, :debounce_ms, path ++ ["debounce_ms"], errors)
+
+    normalized = %Trigger{
+      type: type || "",
+      patterns: patterns,
+      events: events,
+      schedule: schedule,
+      command: command,
+      debounce_ms: debounce_ms
+    }
+
+    {normalized, errors}
+  end
+
+  defp normalize_trigger(_trigger, path, errors) do
+    {nil, error(errors, path, :invalid_type, "trigger must be a map")}
+  end
+
   defp validate_steps(steps, path, errors) when is_list(steps) do
-    Enum.with_index(steps)
+    steps
+    |> Enum.with_index()
     |> Enum.reduce({[], errors}, fn {step, index}, {acc, err_acc} ->
       current = path ++ [Integer.to_string(index)]
 
-      if is_map(step) do
-        {name, err_acc} =
-          required_string(step, :name, current ++ ["name"], nil, "name is required", err_acc)
+      case normalize_step(step, current, err_acc) do
+        {nil, next_errors} ->
+          {acc, next_errors}
 
-        {type, err_acc} =
-          required_string(step, :type, current ++ ["type"], nil, "type is required", err_acc)
-
-        err_acc =
-          if type && type not in @step_types do
-            error(
-              err_acc,
-              current ++ ["type"],
-              :invalid_value,
-              "must be one of: #{Enum.join(@step_types, ", ")}"
-            )
-          else
-            err_acc
-          end
-
-        {module, err_acc} = optional_string(step, :module, current ++ ["module"], err_acc)
-        {agent, err_acc} = optional_string(step, :agent, current ++ ["agent"], err_acc)
-        {workflow, err_acc} = optional_string(step, :workflow, current ++ ["workflow"], err_acc)
-        {outputs, err_acc} = optional_string_list(step, :outputs, current ++ ["outputs"], err_acc)
-
-        {depends_on, err_acc} =
-          optional_string_list(step, :depends_on, current ++ ["depends_on"], err_acc)
-
-        {async?, err_acc} = optional_boolean(step, :async, current ++ ["async"], nil, err_acc)
-
-        {optional?, err_acc} =
-          optional_boolean(step, :optional, current ++ ["optional"], nil, err_acc)
-
-        {mode, err_acc} = optional_string(step, :mode, current ++ ["mode"], err_acc)
-
-        {timeout_ms, err_acc} =
-          optional_integer(step, :timeout_ms, current ++ ["timeout_ms"], err_acc)
-
-        {max_retries, err_acc} =
-          optional_integer(step, :max_retries, current ++ ["max_retries"], err_acc)
-
-        {pre_actions, err_acc} =
-          optional_map_list(step, :pre_actions, current ++ ["pre_actions"], err_acc)
-
-        {post_actions, err_acc} =
-          optional_map_list(step, :post_actions, current ++ ["post_actions"], err_acc)
-
-        {condition, err_acc} =
-          optional_string(step, :condition, current ++ ["condition"], err_acc)
-
-        {parallel, err_acc} =
-          optional_boolean(step, :parallel, current ++ ["parallel"], nil, err_acc)
-
-        {inputs, err_acc} = optional_map_or_list(step, :inputs, current ++ ["inputs"], err_acc)
-
-        err_acc =
-          case type do
-            "action" when is_nil(module) ->
-              error(
-                err_acc,
-                current ++ ["module"],
-                :required,
-                "module is required for action steps"
-              )
-
-            "agent" when is_nil(agent) ->
-              error(err_acc, current ++ ["agent"], :required, "agent is required for agent steps")
-
-            "sub_workflow" when is_nil(workflow) ->
-              error(
-                err_acc,
-                current ++ ["workflow"],
-                :required,
-                "workflow is required for sub_workflow steps"
-              )
-
-            _ ->
-              err_acc
-          end
-
-        err_acc =
-          if mode && mode not in @agent_modes do
-            error(
-              err_acc,
-              current ++ ["mode"],
-              :invalid_value,
-              "must be one of: #{Enum.join(@agent_modes, ", ")}"
-            )
-          else
-            err_acc
-          end
-
-        normalized = %Step{
-          name: name || "",
-          type: type || "",
-          module: module,
-          agent: agent,
-          workflow: workflow,
-          inputs: inputs,
-          outputs: outputs,
-          depends_on: depends_on,
-          async: async?,
-          optional: optional?,
-          mode: mode,
-          timeout_ms: timeout_ms,
-          max_retries: max_retries,
-          pre_actions: pre_actions,
-          post_actions: post_actions,
-          condition: condition,
-          parallel: parallel
-        }
-
-        {[normalized | acc], err_acc}
-      else
-        {acc, error(err_acc, current, :invalid_type, "step must be a map")}
+        {normalized, next_errors} ->
+          {[normalized | acc], next_errors}
       end
     end)
     |> then(fn {normalized, err_acc} -> {Enum.reverse(normalized), err_acc} end)
@@ -319,6 +203,89 @@ defmodule JidoWorkflow.Workflow.Validator do
 
   defp validate_steps(_, path, errors) do
     {[], error(errors, path, :invalid_type, "steps must be a list")}
+  end
+
+  defp normalize_step(step, path, errors) when is_map(step) do
+    {name, errors} =
+      required_string(step, :name, path ++ ["name"], nil, "name is required", errors)
+
+    {type, errors} =
+      required_string(step, :type, path ++ ["type"], nil, "type is required", errors)
+
+    errors = maybe_add_inclusion_error(errors, type, @step_types, path ++ ["type"])
+    {module, errors} = optional_string(step, :module, path ++ ["module"], errors)
+    {agent, errors} = optional_string(step, :agent, path ++ ["agent"], errors)
+    {workflow, errors} = optional_string(step, :workflow, path ++ ["workflow"], errors)
+    {outputs, errors} = optional_string_list(step, :outputs, path ++ ["outputs"], errors)
+    {depends_on, errors} = optional_string_list(step, :depends_on, path ++ ["depends_on"], errors)
+    {async?, errors} = optional_boolean(step, :async, path ++ ["async"], nil, errors)
+    {optional?, errors} = optional_boolean(step, :optional, path ++ ["optional"], nil, errors)
+    {mode, errors} = optional_string(step, :mode, path ++ ["mode"], errors)
+    {timeout_ms, errors} = optional_integer(step, :timeout_ms, path ++ ["timeout_ms"], errors)
+    {max_retries, errors} = optional_integer(step, :max_retries, path ++ ["max_retries"], errors)
+    {pre_actions, errors} = optional_map_list(step, :pre_actions, path ++ ["pre_actions"], errors)
+
+    {post_actions, errors} =
+      optional_map_list(step, :post_actions, path ++ ["post_actions"], errors)
+
+    {condition, errors} = optional_string(step, :condition, path ++ ["condition"], errors)
+    {parallel, errors} = optional_boolean(step, :parallel, path ++ ["parallel"], nil, errors)
+    {inputs, errors} = optional_map_or_list(step, :inputs, path ++ ["inputs"], errors)
+
+    errors =
+      errors
+      |> validate_step_requirements(type, module, agent, workflow, path)
+      |> maybe_add_inclusion_error(mode, @agent_modes, path ++ ["mode"])
+
+    normalized = %Step{
+      name: name || "",
+      type: type || "",
+      module: module,
+      agent: agent,
+      workflow: workflow,
+      inputs: inputs,
+      outputs: outputs,
+      depends_on: depends_on,
+      async: async?,
+      optional: optional?,
+      mode: mode,
+      timeout_ms: timeout_ms,
+      max_retries: max_retries,
+      pre_actions: pre_actions,
+      post_actions: post_actions,
+      condition: condition,
+      parallel: parallel
+    }
+
+    {normalized, errors}
+  end
+
+  defp normalize_step(_step, path, errors) do
+    {nil, error(errors, path, :invalid_type, "step must be a map")}
+  end
+
+  defp validate_step_requirements(errors, "action", nil, _agent, _workflow, path) do
+    error(errors, path ++ ["module"], :required, "module is required for action steps")
+  end
+
+  defp validate_step_requirements(errors, "agent", _module, nil, _workflow, path) do
+    error(errors, path ++ ["agent"], :required, "agent is required for agent steps")
+  end
+
+  defp validate_step_requirements(errors, "sub_workflow", _module, _agent, nil, path) do
+    error(errors, path ++ ["workflow"], :required, "workflow is required for sub_workflow steps")
+  end
+
+  defp validate_step_requirements(errors, _type, _module, _agent, _workflow, _path), do: errors
+
+  defp maybe_add_inclusion_error(errors, nil, _allowed, _path), do: errors
+
+  defp maybe_add_inclusion_error(errors, value, allowed, path) do
+    if value in allowed do
+      errors
+    else
+      error(errors, path, :invalid_value, "must be one of: #{Enum.join(allowed, ", ")}")
+    end
   end
 
   defp validate_settings(nil, _path, errors), do: {nil, errors}
@@ -552,9 +519,12 @@ defmodule JidoWorkflow.Workflow.Validator do
     [%ValidationError{path: path, code: code, message: message} | errors]
   end
 
-  defp last([]), do: "value"
-  defp last([last]), do: last
-  defp last(list), do: List.last(list)
+  defp last(list) do
+    case List.last(list) do
+      nil -> "value"
+      value -> value
+    end
+  end
 
   defp get(attrs, key), do: get(attrs, key, nil)
 
