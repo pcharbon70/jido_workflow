@@ -3,12 +3,14 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
   Dynamic supervisor for workflow trigger processes.
 
   Supported trigger implementations:
+  - `file_system`
   - `signal`
   - `manual`
   """
 
   use DynamicSupervisor
 
+  alias JidoWorkflow.Workflow.Triggers.FileSystem
   alias JidoWorkflow.Workflow.Triggers.Manual
   alias JidoWorkflow.Workflow.Triggers.Signal
 
@@ -77,6 +79,7 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
 
   defp trigger_module(config) do
     case fetch(config, "type") do
+      "file_system" -> {:ok, FileSystem}
       "signal" -> {:ok, Signal}
       "manual" -> {:ok, Manual}
       type -> {:error, {:unsupported_trigger_type, type}}
