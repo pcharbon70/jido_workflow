@@ -36,6 +36,17 @@ defmodule JidoWorkflow.Workflow.RegistryTest do
     assert {:error, :disabled} = Registry.get_compiled("disabled_flow", pid)
   end
 
+  test "default compile path returns a workflow bundle", %{tmp_dir: tmp_dir} do
+    write_workflow(tmp_dir, "compiled_flow")
+
+    {:ok, pid} = start_supervised({Registry, workflow_dir: tmp_dir, name: unique_name()})
+    assert {:ok, %{total: 1}} = Registry.refresh(pid)
+    assert {:ok, compiled} = Registry.get_compiled("compiled_flow", pid)
+
+    assert %Runic.Workflow{} = compiled.workflow
+    assert compiled.return == %{value: "first_step", transform: nil}
+  end
+
   test "refresh skips unchanged files and preserves compile cache", %{tmp_dir: tmp_dir} do
     write_workflow(tmp_dir, "cache_flow")
     {:ok, counter} = Agent.start_link(fn -> 0 end)

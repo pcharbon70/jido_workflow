@@ -42,6 +42,7 @@ defmodule JidoWorkflow.Workflow.Registry do
 
   use GenServer
 
+  alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Loader
   alias JidoWorkflow.Workflow.Registry.Entry
   alias JidoWorkflow.Workflow.ValidationError
@@ -402,5 +403,5 @@ defmodule JidoWorkflow.Workflow.Registry do
     path |> Path.basename(".md") |> String.replace(~r/[^a-zA-Z0-9_]+/, "_")
   end
 
-  defp default_compile(definition), do: {:ok, definition}
+  defp default_compile(definition), do: Compiler.compile(definition)
 end
