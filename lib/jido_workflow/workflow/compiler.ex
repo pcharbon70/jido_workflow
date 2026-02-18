@@ -224,7 +224,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
   end
 
   defp build_component(%DefinitionStep{type: "action"} = step) do
-    params = %{step: serialize_step(step)}
+    params = %{step: serialize_action_step(step)}
     timeout = step.timeout_ms || 0
     {:ok, ActionNode.new(ExecuteActionStep, params, name: step.name, timeout: timeout)}
   end
@@ -273,6 +273,30 @@ defmodule JidoWorkflow.Workflow.Compiler do
     step
     |> Map.from_struct()
     |> Enum.into(%{}, fn {key, value} -> {Atom.to_string(key), value} end)
+  end
+
+  defp serialize_action_step(step) do
+    step
+    |> Map.from_struct()
+    |> Map.take([
+      :name,
+      :type,
+      :module,
+      :agent,
+      :workflow,
+      :inputs,
+      :outputs,
+      :depends_on,
+      :async,
+      :optional,
+      :mode,
+      :timeout_ms,
+      :max_retries,
+      :pre_actions,
+      :post_actions,
+      :condition,
+      :parallel
+    ])
   end
 
   defp compile_return(nil), do: %{value: nil, transform: nil}
