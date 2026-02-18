@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "JidoWorkflow Triggers Configuration",
+  "type": "object",
+  "properties": {
+    "global_settings": {
+      "type": "object",
+      "properties": {
+        "default_debounce_ms": { "type": "integer", "minimum": 0, "default": 500 },
+        "max_concurrent_triggers": { "type": "integer", "minimum": 1, "default": 10 }
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "workflow_id", "type"],
+        "properties": {
+          "id": { "type": "string" },
+          "workflow_id": { "type": "string" },
+          "type": { "enum": ["file_system", "git_hook", "signal", "scheduled", "manual"] },
+          "enabled": { "type": "boolean", "default": true },
+          "config": { "type": "object" }
+        }
+      }
+    }
+  }
+}

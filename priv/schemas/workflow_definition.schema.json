@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "JidoWorkflow Workflow Definition",
+  "type": "object",
+  "required": ["name", "version"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "enum": ["string", "integer", "boolean", "map", "list"] },
+          "required": { "type": "boolean", "default": false },
+          "default": {},
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/trigger" }
+    },
+    "settings": {
+      "type": "object",
+      "properties": {
+        "max_concurrency": { "type": "integer", "minimum": 1 },
+        "timeout_ms": { "type": "integer", "minimum": 1000 },
+        "retry_policy": {
+          "type": "object",
+          "properties": {
+            "max_retries": { "type": "integer", "minimum": 0 },
+            "backoff": { "enum": ["linear", "exponential", "constant"] },
+            "base_delay_ms": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "on_failure": { "enum": ["compensate", "halt", "continue"] }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string" },
+        "broadcast_events": {
+          "type": "array",
+          "items": { "enum": ["step_started", "step_completed", "step_failed", "workflow_complete", "agent_state"] }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/step" }
+    },
+    "return": {
+      "type": "object",
+      "properties": {
+        "value": { "type": "string" },
+        "transform": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "trigger": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["file_system", "git_hook", "signal", "scheduled", "manual"] },
+        "patterns": { "type": "array", "items": { "type": "string" } },
+        "events": { "type": "array", "items": { "type": "string" } },
+        "schedule": { "type": "string" },
+        "command": { "type": "string" },
+        "debounce_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["name", "type"],
+      "oneOf": [
+        { "$ref": "#/definitions/action_step" },
+        { "$ref": "#/definitions/agent_step" },
+        { "$ref": "#/definitions/sub_workflow_step" }
+      ]
+    },
+    "action_step": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "const": "action" },
+        "module": { "type": "string" },
+        "inputs": { "type": ["object", "array"] },
+        "outputs": { "type": "array", "items": { "type": "string" } },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "async": { "type": "boolean" },
+        "optional": { "type": "boolean" },
+        "max_retries": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["name", "type", "module"]
+    },
+    "agent_step": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "const": "agent" },
+        "agent": { "type": "string" },
+        "inputs": { "type": ["object", "array"] },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "mode": { "enum": ["sync", "async"] },
+        "timeout_ms": { "type": "integer", "minimum": 1 },
+        "pre_actions": { "type": "array", "items": { "type": "object" } },
+        "post_actions": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["name", "type", "agent"]
+    },
+    "sub_workflow_step": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "const": "sub_workflow" },
+        "workflow": { "type": "string" },
+        "inputs": { "type": ["object", "array"] },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "condition": { "type": "string" },
+        "parallel": { "type": "boolean" }
+      },
+      "required": ["name", "type", "workflow"]
+    }
+  }
+}
