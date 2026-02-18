@@ -146,9 +146,9 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
   end
 
   test "trigger supervisor returns unsupported type errors", context do
-    assert {:error, {:unsupported_trigger_type, "file_system"}} =
+    assert {:error, {:unsupported_trigger_type, "scheduled"}} =
              TriggerSupervisor.start_trigger(
-               %{id: "x:file_system:0", workflow_id: "x", type: "file_system"},
+               %{id: "x:scheduled:0", workflow_id: "x", type: "scheduled"},
                supervisor: context.trigger_supervisor,
                process_registry: context.process_registry
              )

@@ -39,6 +39,7 @@ defmodule JidoWorkflow.MixProject do
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       {:libgraph, github: "zblanco/libgraph", branch: "zw/multigraph-indexes", override: true},
       {:jido_runic, github: "agentjido/jido_runic"},
+      {:file_system, "~> 1.1"},
       {:yaml_elixir, "~> 2.12"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
