@@ -146,9 +146,9 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
   end
 
   test "trigger supervisor returns unsupported type errors", context do
-    assert {:error, {:unsupported_trigger_type, "scheduled"}} =
+    assert {:error, {:unsupported_trigger_type, "git_hook"}} =
              TriggerSupervisor.start_trigger(
-               %{id: "x:scheduled:0", workflow_id: "x", type: "scheduled"},
+               %{id: "x:git_hook:0", workflow_id: "x", type: "git_hook"},
                supervisor: context.trigger_supervisor,
                process_registry: context.process_registry
              )
