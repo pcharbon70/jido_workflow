@@ -192,56 +192,10 @@ defmodule JidoWorkflow.Workflow.Registry do
     paths = workflow_paths(state.workflow_dir)
     seen_paths = MapSet.new(paths)
 
-    {entries, by_path, loaded, changed, skipped, errors} =
-      Enum.reduce(paths, {state.entries, state.by_path, 0, 0, 0, []}, fn path,
-                                                                         {entries_acc,
-                                                                          by_path_acc, loaded_acc,
-                                                                          changed_acc,
-                                                                          skipped_acc, errors_acc} ->
-        case current_entry_for_path(entries_acc, by_path_acc, path) do
-          {:ok, %Entry{} = current_entry} ->
-            hash = file_hash(path)
-
-            if current_entry.hash == hash and not MapSet.member?(force_paths, path) do
-              {entries_acc, by_path_acc, loaded_acc, changed_acc, skipped_acc + 1, errors_acc}
-            else
-              case build_entry(path, state.compile_fun) do
-                {:ok, entry} ->
-                  entries_acc =
-                    entries_acc
-                    |> Map.delete(current_entry.id)
-                    |> Map.put(entry.id, entry)
-
-                  by_path_acc = by_path_acc |> Map.delete(path) |> Map.put(path, entry.id)
-
-                  {entries_acc, by_path_acc, loaded_acc + 1, changed_acc + 1, skipped_acc,
-                   errors_acc}
-
-                {:error, entry_id, entry_errors, fallback_entry} ->
-                  entries_acc =
-                    entries_acc
-                    |> Map.delete(current_entry.id)
-                    |> Map.put(entry_id, fallback_entry)
-
-                  by_path_acc = by_path_acc |> Map.delete(path) |> Map.put(path, entry_id)
-
-                  {entries_acc, by_path_acc, loaded_acc + 1, changed_acc + 1, skipped_acc,
-                   errors_acc ++ entry_errors}
-              end
-            end
-
-          :error ->
-            case build_entry(path, state.compile_fun) do
-              {:ok, entry} ->
-                {Map.put(entries_acc, entry.id, entry), Map.put(by_path_acc, path, entry.id),
-                 loaded_acc + 1, changed_acc, skipped_acc, errors_acc}
-
-              {:error, entry_id, entry_errors, fallback_entry} ->
-                {Map.put(entries_acc, entry_id, fallback_entry),
-                 Map.put(by_path_acc, path, entry_id), loaded_acc + 1, changed_acc, skipped_acc,
-                 errors_acc ++ entry_errors}
-            end
-        end
+    refresh_acc =
+      paths
+      |> Enum.reduce(new_refresh_acc(state), fn path, acc ->
+        refresh_path(path, state.compile_fun, force_paths, acc)
       end)
 
     removed_paths =
@@ -250,8 +204,10 @@ defmodule JidoWorkflow.Workflow.Registry do
       |> Enum.reject(&MapSet.member?(seen_paths, &1))
 
     {entries, by_path, removed_count} =
-      Enum.reduce(removed_paths, {entries, by_path, 0}, fn removed_path,
-                                                           {entries_acc, by_path_acc, count} ->
+      Enum.reduce(removed_paths, {refresh_acc.entries, refresh_acc.by_path, 0}, fn removed_path,
+                                                                                   {entries_acc,
+                                                                                    by_path_acc,
+                                                                                    count} ->
         case Map.pop(by_path_acc, removed_path) do
           {nil, by_path_acc} ->
             {entries_acc, by_path_acc, count}
@@ -264,15 +220,88 @@ defmodule JidoWorkflow.Workflow.Registry do
     summary = %{
       workflow_dir: state.workflow_dir,
       total: map_size(entries),
-      loaded: loaded,
-      changed: changed,
-      skipped: skipped,
+      loaded: refresh_acc.loaded,
+      changed: refresh_acc.changed,
+      skipped: refresh_acc.skipped,
       removed: removed_count,
-      errors: errors
+      errors: refresh_acc.errors
     }
 
     {%{state | entries: entries, by_path: by_path}, summary}
   end
+
+  defp new_refresh_acc(state) do
+    %{
+      entries: state.entries,
+      by_path: state.by_path,
+      loaded: 0,
+      changed: 0,
+      skipped: 0,
+      errors: []
+    }
+  end
+
+  defp refresh_path(path, compile_fun, force_paths, acc) do
+    case current_entry_for_path(acc.entries, acc.by_path, path) do
+      {:ok, %Entry{} = current_entry} ->
+        refresh_existing_path(path, current_entry, compile_fun, force_paths, acc)
+
+      :error ->
+        upsert_built_entry(path, nil, build_entry(path, compile_fun), acc, false)
+    end
+  end
+
+  defp refresh_existing_path(path, current_entry, compile_fun, force_paths, acc) do
+    unchanged? = current_entry.hash == file_hash(path) and not MapSet.member?(force_paths, path)
+
+    if unchanged? do
+      %{acc | skipped: acc.skipped + 1}
+    else
+      upsert_built_entry(path, current_entry.id, build_entry(path, compile_fun), acc, true)
+    end
+  end
+
+  defp upsert_built_entry(path, old_id, {:ok, entry}, acc, changed?) do
+    entries =
+      acc.entries
+      |> maybe_delete_entry(old_id)
+      |> Map.put(entry.id, entry)
+
+    %{
+      acc
+      | entries: entries,
+        by_path: Map.put(acc.by_path, path, entry.id),
+        loaded: acc.loaded + 1,
+        changed: bump_changed(acc.changed, changed?)
+    }
+  end
+
+  defp upsert_built_entry(
+         path,
+         old_id,
+         {:error, entry_id, entry_errors, fallback_entry},
+         acc,
+         changed?
+       ) do
+    entries =
+      acc.entries
+      |> maybe_delete_entry(old_id)
+      |> Map.put(entry_id, fallback_entry)
+
+    %{
+      acc
+      | entries: entries,
+        by_path: Map.put(acc.by_path, path, entry_id),
+        loaded: acc.loaded + 1,
+        changed: bump_changed(acc.changed, changed?),
+        errors: acc.errors ++ entry_errors
+    }
+  end
+
+  defp maybe_delete_entry(entries, nil), do: entries
+  defp maybe_delete_entry(entries, id), do: Map.delete(entries, id)
+  defp bump_changed(count, true), do: count + 1
+  defp bump_changed(count, false), do: count
 
   defp build_entry(path, compile_fun) do
     with {:ok, definition} <- Loader.load_file(path),

@@ -77,28 +77,14 @@ defmodule JidoWorkflow.Workflow.MarkdownParser do
       Enum.reduce(lines, {%{}, nil, []}, fn line, {acc, active, content} ->
         case Regex.run(~r/^##\s+(.+)\s*$/, line) do
           [_, title] ->
-            acc =
-              if is_nil(active) do
-                acc
-              else
-                Map.put(acc, normalize_heading(active), Enum.join(content, "\n"))
-              end
-
-            {acc, title, []}
+            {store_section(acc, active, content), title, []}
 
           _ ->
             {acc, active, content ++ [line]}
         end
       end)
 
-    sections =
-      if is_nil(current) do
-        sections
-      else
-        Map.put(sections, normalize_heading(current), Enum.join(buffer, "\n"))
-      end
-
-    {:ok, sections}
+    {:ok, store_section(sections, current, buffer)}
   rescue
     e ->
       {:error,
@@ -154,21 +140,10 @@ defmodule JidoWorkflow.Workflow.MarkdownParser do
       Enum.reduce(lines, {[], nil, []}, fn line, {acc, title, content} ->
         case Regex.run(~r/^###\s+(.+)\s*$/, line) do
           [_, h3_title] ->
-            acc =
-              if is_nil(title) do
-                acc
-              else
-                acc ++ [{title, content}]
-              end
-
-            {acc, h3_title, []}
+            {store_h3_block(acc, title, content), h3_title, []}
 
           _ ->
-            if is_nil(title) do
-              {acc, title, content}
-            else
-              {acc, title, content ++ [line]}
-            end
+            {acc, title, append_h3_line(content, title, line)}
         end
       end)
 
@@ -178,6 +153,18 @@ defmodule JidoWorkflow.Workflow.MarkdownParser do
       blocks ++ [{current_title, current_lines}]
     end
   end
+
+  defp store_section(sections, nil, _content), do: sections
+
+  defp store_section(sections, heading, content) do
+    Map.put(sections, normalize_heading(heading), Enum.join(content, "\n"))
+  end
+
+  defp store_h3_block(blocks, nil, _content), do: blocks
+  defp store_h3_block(blocks, title, content), do: blocks ++ [{title, content}]
+
+  defp append_h3_line(content, nil, _line), do: content
+  defp append_h3_line(content, _title, line), do: content ++ [line]
 
   defp parse_bold_property_list(lines) do
     do_parse_properties(lines, 0, %{})
