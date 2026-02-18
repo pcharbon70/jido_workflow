@@ -45,7 +45,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Engine
 
-  test "execute_compiled/3 executes workflow and projects configured return value" do
+  test "execute_compiled/3 executes workflow and projects configured return value (direct backend)" do
     bus = start_test_bus()
 
     assert {:ok, _sub_id} =
@@ -78,7 +78,10 @@ defmodule JidoWorkflow.Workflow.EngineTest do
       })
 
     assert {:ok, execution} =
-             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"}, bus: bus)
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               bus: bus,
+               backend: :direct
+             )
 
     assert execution.status == :completed
     assert execution.workflow_id == "engine_example"
@@ -93,7 +96,59 @@ defmodule JidoWorkflow.Workflow.EngineTest do
                     }}
   end
 
-  test "execute_compiled/3 broadcasts failed signal when execution fails" do
+  test "execute_compiled/3 executes workflow and projects configured return value (strategy backend)" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    definition =
+      base_definition([
+        %DefinitionStep{
+          name: "parse_file",
+          type: "action",
+          module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+          inputs: %{"file_path" => "`input:file_path`"},
+          depends_on: []
+        },
+        %DefinitionStep{
+          name: "build_summary",
+          type: "action",
+          module: "JidoWorkflow.Workflow.EngineTestActions.BuildSummary",
+          inputs: %{"ast" => "`result:parse_file.ast`"},
+          depends_on: ["parse_file"]
+        }
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    compiled =
+      Map.put(compiled, :return, %{
+        value: "build_summary",
+        transform: "fn result -> Map.get(result, \"summary\") end"
+      })
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               bus: bus,
+               backend: :strategy,
+               await_timeout: 30_000
+             )
+
+    assert execution.status == :completed
+    assert execution.workflow_id == "engine_example"
+    assert execution.result == "summary:ast:lib/example.ex"
+
+    assert_receive {:signal, %Signal{type: "workflow.run.started", data: %{"run_id" => run_id}}}
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{"run_id" => ^run_id, "status" => "completed"}
+                    }}
+  end
+
+  test "execute_compiled/3 broadcasts failed signal when execution fails (direct backend)" do
     bus = start_test_bus()
 
     assert {:ok, _sub_id} =
@@ -113,7 +168,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     assert {:ok, compiled} = Compiler.compile(definition)
 
     assert {:error, {:return_projection_failed, :no_productions}} =
-             Engine.execute_compiled(compiled, %{}, bus: bus)
+             Engine.execute_compiled(compiled, %{}, bus: bus, backend: :direct)
 
     assert_receive {:signal, %Signal{type: "workflow.run.started", data: %{"run_id" => run_id}}}
 
@@ -122,6 +177,61 @@ defmodule JidoWorkflow.Workflow.EngineTest do
                       type: "workflow.run.failed",
                       data: %{"run_id" => ^run_id, "status" => "failed"}
                     }}
+  end
+
+  test "execute_compiled/3 broadcasts failed signal when execution fails (strategy backend)" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    definition =
+      base_definition([
+        %DefinitionStep{
+          name: "fail_step",
+          type: "action",
+          module: "JidoWorkflow.Workflow.EngineTestActions.Fail",
+          inputs: %{},
+          depends_on: []
+        }
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error, {:execution_failed, {:runic_failed, _}}} =
+             Engine.execute_compiled(compiled, %{},
+               bus: bus,
+               backend: :strategy,
+               await_timeout: 30_000
+             )
+
+    assert_receive {:signal, %Signal{type: "workflow.run.started", data: %{"run_id" => run_id}}}
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.failed",
+                      data: %{"run_id" => ^run_id, "status" => "failed"}
+                    }}
+  end
+
+  test "execute_compiled/3 returns invalid backend error for unsupported backend option" do
+    definition =
+      base_definition([
+        %DefinitionStep{
+          name: "parse_file",
+          type: "action",
+          module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+          inputs: %{"file_path" => "`input:file_path`"},
+          depends_on: []
+        }
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error, {:invalid_backend, :unknown}} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               backend: :unknown
+             )
   end
 
   defp base_definition(steps) do
