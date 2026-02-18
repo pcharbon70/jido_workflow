@@ -5,6 +5,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
 
   alias Jido.Runic.ActionNode
   alias JidoWorkflow.Workflow.Actions.ExecuteActionStep
+  alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.ArgumentResolver
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
@@ -234,7 +235,9 @@ defmodule JidoWorkflow.Workflow.Compiler do
   end
 
   defp build_component(%DefinitionStep{type: "sub_workflow"} = step) do
-    {:ok, build_metadata_step(step)}
+    params = %{step: serialize_sub_workflow_step(step)}
+    timeout = step.timeout_ms || 0
+    {:ok, ActionNode.new(ExecuteSubWorkflowStep, params, name: step.name, timeout: timeout)}
   end
 
   defp build_component(%DefinitionStep{name: name, type: type}) do
@@ -296,6 +299,20 @@ defmodule JidoWorkflow.Workflow.Compiler do
       :post_actions,
       :condition,
       :parallel
+    ])
+  end
+
+  defp serialize_sub_workflow_step(step) do
+    step
+    |> Map.from_struct()
+    |> Map.take([
+      :name,
+      :type,
+      :workflow,
+      :inputs,
+      :condition,
+      :depends_on,
+      :timeout_ms
     ])
   end
 

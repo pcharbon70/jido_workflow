@@ -138,7 +138,10 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStep do
   end
 
   defp fetch(step, key) when is_map(step) do
-    Map.get(step, key) || fetch_atom_key(step, key)
+    case Map.fetch(step, key) do
+      {:ok, value} -> value
+      :error -> fetch_atom_key(step, key)
+    end
   end
 
   defp fetch_atom_key(step, key) do

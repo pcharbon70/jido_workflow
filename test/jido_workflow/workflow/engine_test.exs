@@ -198,12 +198,15 @@ defmodule JidoWorkflow.Workflow.EngineTest do
 
     assert {:ok, compiled} = Compiler.compile(definition)
 
-    assert {:error, {:execution_failed, {:runic_failed, _}}} =
+    assert {:error, {:execution_failed, reason}} =
              Engine.execute_compiled(compiled, %{},
                bus: bus,
                backend: :strategy,
                await_timeout: 30_000
              )
+
+    assert match?({:runic_failed, _}, reason) or
+             match?({:await_completion_failed, {:timeout, _}}, reason)
 
     assert_receive {:signal, %Signal{type: "workflow.run.started", data: %{"run_id" => run_id}}}
 

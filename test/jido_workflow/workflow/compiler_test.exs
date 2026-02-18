@@ -2,6 +2,7 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
   use ExUnit.Case, async: true
 
   alias Jido.Runic.ActionNode
+  alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
@@ -25,7 +26,11 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert %RunicStep{name: "ai_code_review"} =
              Workflow.get_component(compiled.workflow, "ai_code_review")
 
-    assert %RunicStep{name: "apply_fixes"} =
+    assert %ActionNode{
+             name: "apply_fixes",
+             action_mod: ExecuteSubWorkflowStep,
+             params: %{step: %{workflow: "auto_fix_pipeline"}}
+           } =
              Workflow.get_component(compiled.workflow, "apply_fixes")
 
     assert Map.has_key?(compiled.workflow.components, "parse_file")
