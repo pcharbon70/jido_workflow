@@ -2,19 +2,23 @@ defmodule JidoWorkflow.Workflow.Engine do
   @moduledoc """
   Executes compiled workflows and emits lifecycle signals.
 
-  Current scope:
-  - synchronous execution of a compiled Runic workflow
-  - return projection from final productions
-  - signal-native lifecycle broadcasting
+  Supports two execution backends:
+  - `:direct` (default): execute Runic workflow directly in-process
+  - `:strategy`: execute through `Jido.Runic.Strategy` using an AgentServer
   """
 
+  alias Jido.Agent.Strategy.State, as: StratState
+  alias Jido.Signal
   alias JidoWorkflow.Workflow.ArgumentResolver
   alias JidoWorkflow.Workflow.Broadcaster
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Registry
   alias JidoWorkflow.Workflow.ReturnProjector
+  alias JidoWorkflow.Workflow.RuntimeAgent
   alias Runic.Workflow
+
+  @type backend :: :direct | :strategy
 
   @type execution_result :: %{
           run_id: String.t(),
@@ -44,52 +48,200 @@ defmodule JidoWorkflow.Workflow.Engine do
 
   @spec execute_compiled(map(), map(), keyword()) :: {:ok, execution_result()} | {:error, term()}
   def execute_compiled(compiled, inputs, opts \\ []) when is_map(compiled) and is_map(inputs) do
-    workflow_id = workflow_id(compiled, opts)
-    run_id = Keyword.get_lazy(opts, :run_id, &generate_run_id/0)
+    with {:ok, backend} <- resolve_backend(opts) do
+      workflow_id = workflow_id(compiled, opts)
+      run_id = Keyword.get_lazy(opts, :run_id, &generate_run_id/0)
 
-    state = %{
-      "inputs" => normalize_inputs(inputs),
-      "results" => %{}
-    }
+      state = %{
+        "inputs" => normalize_inputs(inputs),
+        "results" => %{}
+      }
 
-    metadata = %{"inputs" => state["inputs"]}
-    _ = maybe_broadcast_started(workflow_id, run_id, metadata, opts)
+      metadata = %{"inputs" => state["inputs"], "backend" => Atom.to_string(backend)}
+      _ = maybe_broadcast_started(workflow_id, run_id, metadata, opts)
 
-    runic_opts = runic_opts(opts)
-
-    try do
-      executed = Workflow.react_until_satisfied(compiled.workflow, state, runic_opts)
-      productions = Workflow.raw_productions(executed)
-
-      case ReturnProjector.project(productions, compiled[:return]) do
-        {:ok, result} ->
-          _ = maybe_broadcast_completed(workflow_id, run_id, result, opts)
-
-          {:ok,
-           %{
-             run_id: run_id,
-             workflow_id: workflow_id,
-             status: :completed,
-             result: result,
-             productions: productions,
-             workflow: executed
-           }}
+      case run_backend(backend, compiled.workflow, state, workflow_id, opts) do
+        {:ok, executed, productions} ->
+          handle_projected_result(
+            compiled,
+            workflow_id,
+            run_id,
+            executed,
+            productions,
+            opts
+          )
 
         {:error, reason} ->
           _ = maybe_broadcast_failed(workflow_id, run_id, reason, opts)
-          {:error, {:return_projection_failed, reason}}
+          {:error, {:execution_failed, reason}}
       end
+    end
+  end
+
+  defp run_backend(:direct, workflow, state, _workflow_id, opts) do
+    runic_opts = runic_opts(opts)
+
+    try do
+      executed = Workflow.react_until_satisfied(workflow, state, runic_opts)
+      {:ok, executed, Workflow.raw_productions(executed)}
     rescue
       exception ->
-        reason = {:exception, Exception.message(exception)}
-        _ = maybe_broadcast_failed(workflow_id, run_id, reason, opts)
-        {:error, {:execution_failed, reason}}
+        {:error, {:exception, Exception.message(exception)}}
     catch
       kind, reason ->
-        wrapped = {:caught, kind, reason}
-        _ = maybe_broadcast_failed(workflow_id, run_id, wrapped, opts)
-        {:error, {:execution_failed, wrapped}}
+        {:error, {:caught, kind, reason}}
     end
+  end
+
+  defp run_backend(:strategy, workflow, state, workflow_id, opts) do
+    with_runtime_agent(opts, fn pid ->
+      with :ok <- set_runtime_workflow(pid, workflow, workflow_id),
+           :ok <- feed_runtime_inputs(pid, state, workflow_id),
+           {:ok, completion} <- await_runtime_completion(pid, opts),
+           :ok <- ensure_runtime_completed(completion),
+           {:ok, executed} <- fetch_runtime_workflow(pid) do
+        {:ok, executed, Workflow.raw_productions(executed)}
+      end
+    end)
+  end
+
+  defp handle_projected_result(compiled, workflow_id, run_id, executed, productions, opts) do
+    case ReturnProjector.project(productions, compiled[:return]) do
+      {:ok, result} ->
+        _ = maybe_broadcast_completed(workflow_id, run_id, result, opts)
+
+        {:ok,
+         %{
+           run_id: run_id,
+           workflow_id: workflow_id,
+           status: :completed,
+           result: result,
+           productions: productions,
+           workflow: executed
+         }}
+
+      {:error, reason} ->
+        _ = maybe_broadcast_failed(workflow_id, run_id, reason, opts)
+        {:error, {:return_projection_failed, reason}}
+    end
+  end
+
+  defp with_runtime_agent(opts, fun) when is_function(fun, 1) do
+    debug = Keyword.get(opts, :debug_runtime, false)
+
+    with :ok <- ensure_runtime_dependencies() do
+      case Jido.AgentServer.start_link(
+             agent: RuntimeAgent,
+             jido: Jido,
+             debug: debug,
+             register_global: false,
+             skip_schedules: true
+           ) do
+        {:ok, pid} ->
+          Process.unlink(pid)
+
+          try do
+            fun.(pid)
+          after
+            stop_runtime_agent(pid)
+          end
+
+        {:error, reason} ->
+          {:error, {:agent_start_failed, reason}}
+      end
+    end
+  end
+
+  defp set_runtime_workflow(pid, workflow, workflow_id) do
+    signal =
+      Signal.new!(
+        "runic.set_workflow",
+        %{workflow: workflow},
+        source: runtime_source(workflow_id, "set_workflow")
+      )
+
+    case Jido.AgentServer.call(pid, signal) do
+      {:ok, _agent} -> :ok
+      {:error, reason} -> {:error, {:set_workflow_failed, reason}}
+    end
+  end
+
+  defp feed_runtime_inputs(pid, state, workflow_id) do
+    signal =
+      Signal.new!(
+        "runic.feed",
+        %{data: state},
+        source: runtime_source(workflow_id, "feed")
+      )
+
+    case Jido.AgentServer.cast(pid, signal) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:feed_failed, reason}}
+    end
+  end
+
+  defp await_runtime_completion(pid, opts) do
+    timeout = Keyword.get(opts, :await_timeout, Keyword.get(opts, :timeout, 300_000))
+
+    case Jido.AgentServer.await_completion(pid, timeout: timeout) do
+      {:ok, completion} -> {:ok, completion}
+      {:error, reason} -> {:error, {:await_completion_failed, reason}}
+    end
+  end
+
+  defp ensure_runtime_completed(%{status: :completed}), do: :ok
+
+  defp ensure_runtime_completed(%{status: :failed} = completion) do
+    {:error, {:runic_failed, Map.get(completion, :result)}}
+  end
+
+  defp ensure_runtime_completed(other), do: {:error, {:unexpected_completion_status, other}}
+
+  defp fetch_runtime_workflow(pid) do
+    with {:ok, server_state} <- Jido.AgentServer.state(pid) do
+      strat = StratState.get(server_state.agent, %{})
+
+      case Map.get(strat, :workflow) do
+        %Workflow{} = workflow -> {:ok, workflow}
+        other -> {:error, {:missing_strategy_workflow, other}}
+      end
+    end
+  end
+
+  defp stop_runtime_agent(pid) when is_pid(pid) do
+    if Process.alive?(pid) do
+      GenServer.stop(pid, :normal, 1_000)
+    else
+      :ok
+    end
+  catch
+    :exit, _reason ->
+      :ok
+  end
+
+  defp ensure_runtime_dependencies do
+    with {:ok, _apps} <- Application.ensure_all_started(:jido),
+         {:ok, _apps} <- Application.ensure_all_started(:jido_runic),
+         {:ok, _pid} <- Jido.start(name: Jido) do
+      :ok
+    else
+      {:error, reason} ->
+        {:error, {:runtime_dependencies_failed, reason}}
+    end
+  end
+
+  defp resolve_backend(opts) do
+    backend = Keyword.get(opts, :backend, default_backend())
+
+    if backend in [:direct, :strategy] do
+      {:ok, backend}
+    else
+      {:error, {:invalid_backend, backend}}
+    end
+  end
+
+  defp default_backend do
+    Application.get_env(:jido_workflow, :engine_backend, :direct)
   end
 
   defp workflow_id(compiled, opts) do
@@ -141,6 +293,10 @@ defmodule JidoWorkflow.Workflow.Engine do
 
   defp broadcast_opts(opts) do
     [bus: Keyword.get(opts, :bus, Broadcaster.default_bus())]
+  end
+
+  defp runtime_source(workflow_id, suffix) do
+    "/jido_workflow/workflow/#{workflow_id}/#{suffix}"
   end
 
   defp generate_run_id do
