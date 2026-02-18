@@ -5,6 +5,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
 
   alias Jido.Runic.ActionNode
   alias JidoWorkflow.Workflow.Actions.ExecuteActionStep
+  alias JidoWorkflow.Workflow.ArgumentResolver
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.ValidationError
@@ -253,13 +254,17 @@ defmodule JidoWorkflow.Workflow.Compiler do
     RunicStep.new(
       name: step.name,
       work: fn input ->
-        %{
+        state = ArgumentResolver.normalize_state(input)
+
+        placeholder_result = %{
           "step" => metadata["name"],
           "type" => metadata["type"],
           "workflow" => metadata["workflow"],
           "agent" => metadata["agent"],
-          "input" => input
+          "status" => "not_implemented"
         }
+
+        ArgumentResolver.put_result(state, metadata["name"], placeholder_result)
       end
     )
   end
