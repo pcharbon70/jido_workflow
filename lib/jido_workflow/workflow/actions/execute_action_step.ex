@@ -20,7 +20,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStep do
   def run(%{step: step} = params, _context) do
     state =
       params
-      |> Map.delete(:step)
+      |> extract_runtime_state()
       |> ArgumentResolver.normalize_state()
 
     with {:ok, step_meta} <- normalize_step(step),
@@ -28,6 +28,18 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStep do
          {:ok, resolved_inputs} <- ArgumentResolver.resolve_inputs(step_meta.inputs, state),
          {:ok, result} <- run_action(target_module, resolved_inputs, step_meta) do
       {:ok, ArgumentResolver.put_result(state, step_meta.name, result)}
+    end
+  end
+
+  defp extract_runtime_state(params) when is_map(params) do
+    case fetch(params, "input") do
+      nil ->
+        params
+        |> Map.delete(:step)
+        |> Map.delete("step")
+
+      input ->
+        input
     end
   end
 

@@ -60,6 +60,27 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStepTest do
     assert state["results"]["build_summary"]["summary"] == "summary:ast:lib/example.ex"
   end
 
+  test "resolves state from runic :input payload format" do
+    step = %{
+      "name" => "build_summary",
+      "module" => "JidoWorkflow.TestActions.BuildSummary",
+      "inputs" => %{"ast" => "`result:parse_file.ast`"}
+    }
+
+    params = %{
+      input: [
+        %{
+          "inputs" => %{"file_path" => "lib/example.ex"},
+          "results" => %{"parse_file" => %{"ast" => "ast:lib/example.ex"}}
+        }
+      ],
+      step: step
+    }
+
+    assert {:ok, state} = ExecuteActionStep.run(params, %{})
+    assert state["results"]["build_summary"]["summary"] == "summary:ast:lib/example.ex"
+  end
+
   test "returns error when target module is not loaded" do
     step = %{"name" => "missing", "module" => "Nope.Module", "inputs" => %{}}
 
