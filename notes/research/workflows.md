@@ -1,10 +1,10 @@
 # DAG-Based AI Workflow Orchestration System for JidoCode
 
-A comprehensive design integrating Reactor's programmatic DAG execution with Jido's agent, signal, and action ecosystems to create a powerful, markdown-defined workflow system for the JidoCode TUI coding assistant.
+A comprehensive design integrating Runic's runtime DAG execution (via `jido_runic`) with Jido's agent, signal, and action ecosystems to create a powerful, markdown-defined workflow system for the JidoCode TUI coding assistant.
 
-## Bottom line: Reactor's Builder API enables dynamic DAG construction
+## Bottom line: Runic + jido_runic enable dynamic DAG construction and signal-native execution
 
-The Reactor library provides a **programmatic Builder API** that produces identical runtime structures to its DSL, making it ideal for constructing workflows from parsed markdown definitions at runtime. Combined with Jido's Signal Bus for triggering and Agent lifecycle hooks for orchestration, this creates a complete workflow engine that integrates seamlessly with JidoCode's existing extensibility system.
+The Runic library provides runtime-composable DAG workflows, and `jido_runic` bridges those workflows into Jido's signal-driven runtime with `Jido.Runic.Strategy`, `Jido.Runic.ActionNode`, and Runnable directives. This makes it well-suited for constructing workflows from parsed markdown definitions at runtime while preserving Jido-native orchestration, observability, and control.
 
 ---
 
@@ -188,119 +188,51 @@ enabled: true
 
 ---
 
-## Reactor programmatic API integration
+## Runic and jido_runic integration
 
-The workflow engine translates parsed markdown definitions into Reactor workflows using the Builder API.
+The workflow engine translates parsed markdown definitions into `Runic.Workflow` DAGs and executes them through `Jido.Runic.Strategy` for signal-native orchestration.
 
 ### Core workflow compiler module
 
 ```elixir
 defmodule JidoCode.Workflow.Compiler do
   @moduledoc """
-  Compiles parsed workflow definitions into executable Reactor workflows.
-  Uses Reactor.Builder programmatic API - no DSL macros.
+  Compiles parsed workflow definitions into executable Runic workflows.
   """
-  
-  alias Reactor.{Builder, Argument}
-  alias JidoCode.Workflow.{StepFactory, ArgumentResolver}
-  
+
+  alias Runic.Workflow
+  alias JidoCode.Workflow.{ComponentFactory, ReturnProjector}
+
   @doc """
-  Compiles a workflow definition map into a Reactor struct.
+  Compiles a workflow definition map into a compiled workflow bundle.
   """
-  def compile(%{inputs: inputs, steps: steps, return: return_config} = definition) do
-    with {:ok, reactor} <- initialize_reactor(inputs),
-         {:ok, reactor} <- add_steps(reactor, steps),
-         {:ok, reactor} <- set_return(reactor, return_config) do
-      {:ok, reactor}
+  def compile(%{name: name, steps: steps, return: return_config}) do
+    workflow = Workflow.new(name: String.to_atom(name))
+
+    with {:ok, workflow} <- add_steps(workflow, steps) do
+      {:ok, %{workflow: workflow, return: ReturnProjector.compile(return_config)}}
     end
   end
-  
-  defp initialize_reactor(inputs) do
-    reactor = Builder.new()
-    
-    Enum.reduce_while(inputs, {:ok, reactor}, fn input_def, {:ok, reactor} ->
-      case Builder.add_input(reactor, input_def.name) do
-        {:ok, reactor} -> {:cont, {:ok, reactor}}
-        error -> {:halt, error}
-      end
-    end)
-  end
-  
-  defp add_steps(reactor, steps) do
-    # Topologically sort steps by dependencies
+
+  defp add_steps(workflow, steps) do
     sorted_steps = topological_sort(steps)
-    
-    Enum.reduce_while(sorted_steps, {:ok, reactor}, fn step, {:ok, reactor} ->
-      case compile_step(reactor, step) do
-        {:ok, reactor} -> {:cont, {:ok, reactor}}
-        error -> {:halt, error}
+
+    Enum.reduce_while(sorted_steps, {:ok, workflow}, fn step, {:ok, wrk} ->
+      component = ComponentFactory.build(step)
+      parents = Enum.map(step[:depends_on] || [], &String.to_atom/1)
+
+      try do
+        next =
+          case parents do
+            [] -> Workflow.add(wrk, component)
+            _ -> Workflow.add(wrk, component, to: parents)
+          end
+
+        {:cont, {:ok, next}}
+      rescue
+        e -> {:halt, {:error, {:compile_step_failed, step.name, e}}}
       end
     end)
-  end
-  
-  defp compile_step(reactor, %{type: :action} = step) do
-    arguments = ArgumentResolver.resolve_arguments(step.inputs)
-    
-    Builder.add_step(
-      reactor,
-      step.name,
-      StepFactory.action_step(step.module),
-      arguments,
-      max_retries: step[:max_retries] || 0,
-      async?: step[:async] || true
-    )
-  end
-  
-  defp compile_step(reactor, %{type: :agent} = step) do
-    # Agent steps use a wrapper that handles pre/post actions
-    arguments = ArgumentResolver.resolve_arguments(step.inputs)
-    
-    step_impl = StepFactory.agent_step(
-      step.agent,
-      pre_actions: step[:pre_actions] || [],
-      post_actions: step[:post_actions] || [],
-      mode: step[:mode] || :sync,
-      timeout_ms: step[:timeout_ms]
-    )
-    
-    Builder.add_step(
-      reactor,
-      step.name,
-      step_impl,
-      arguments,
-      max_retries: step[:max_retries] || 0,
-      async?: step[:mode] != :sync
-    )
-  end
-  
-  defp compile_step(reactor, %{type: :sub_workflow} = step) do
-    arguments = ArgumentResolver.resolve_arguments(step.inputs)
-    
-    # Use Reactor.Builder.Compose for nested workflows
-    sub_reactor = load_sub_workflow(step.workflow)
-    
-    Builder.Compose.compose(
-      reactor,
-      step.name,
-      sub_reactor,
-      arguments,
-      async?: true
-    )
-  end
-  
-  defp set_return(reactor, %{value: step_name, transform: transform_fn}) do
-    reactor = if transform_fn do
-      # Apply transformation to return value
-      {:ok, reactor} = Builder.add_step(
-        reactor,
-        :__return_transform__,
-        {JidoCode.Workflow.Steps.Transform, transform: transform_fn},
-        [Argument.from_result(:value, step_name)]
-      )
-      Builder.return(reactor, :__return_transform__)
-    else
-      Builder.return(reactor, step_name)
-    end
   end
 end
 ```
@@ -310,176 +242,186 @@ end
 ```elixir
 defmodule JidoCode.Workflow.ArgumentResolver do
   @moduledoc """
-  Resolves workflow argument references into Reactor.Argument structs.
-  Handles input:, result:, and static value references.
+  Resolves input/result references from the current Runic fact value.
+
+  Fact values follow:
+    %{inputs: %{...}, results: %{step_name => step_result}}
   """
-  
-  alias Reactor.Argument
-  
-  def resolve_arguments(inputs) when is_list(inputs) do
-    Enum.map(inputs, &resolve_argument/1)
+
+  def resolve_inputs(inputs, state) when is_map(inputs) do
+    Enum.into(inputs, %{}, fn {name, value} -> {name, resolve_value(value, state)} end)
   end
-  
-  def resolve_arguments(inputs) when is_map(inputs) do
-    Enum.map(inputs, fn {name, value} -> resolve_argument({name, value}) end)
+
+  def resolve_inputs(inputs, state) when is_list(inputs) do
+    Enum.into(inputs, %{}, fn {name, value} -> {name, resolve_value(value, state)} end)
   end
-  
-  defp resolve_argument({name, value}) when is_binary(value) do
+
+  def put_result(state, step_name, result) do
+    put_in(state, [:results, String.to_atom(step_name)], result)
+  end
+
+  defp resolve_value(value, state) when is_binary(value) do
     case parse_reference(value) do
       {:input, input_name} ->
-        Argument.from_input(name, String.to_atom(input_name))
-        
+        get_in(state, [:inputs, String.to_atom(input_name)])
+
       {:result, step_name, path} ->
-        arg = Argument.from_result(name, String.to_atom(step_name))
-        if path, do: Argument.sub_path(arg, parse_path(path)), else: arg
-        
+        base = get_in(state, [:results, String.to_atom(step_name)])
+        if path, do: get_in(base, parse_path(path)), else: base
+
       :static ->
-        Argument.from_value(name, value)
+        value
     end
   end
-  
-  defp resolve_argument({name, value}) do
-    Argument.from_value(name, value)
-  end
-  
+
+  defp resolve_value(value, _state), do: value
+
   defp parse_reference(value) do
     cond do
       String.starts_with?(value, "`input:") ->
         input_name = value |> String.trim_leading("`input:") |> String.trim_trailing("`")
         {:input, input_name}
-        
+
       String.starts_with?(value, "`result:") ->
         ref = value |> String.trim_leading("`result:") |> String.trim_trailing("`")
+
         case String.split(ref, ".", parts: 2) do
           [step] -> {:result, step, nil}
           [step, path] -> {:result, step, path}
         end
-        
+
       true ->
         :static
     end
   end
-  
+
   defp parse_path(path), do: String.split(path, ".") |> Enum.map(&String.to_atom/1)
 end
 ```
 
-### Step factory for different step types
+### Component factory for step types
 
 ```elixir
-defmodule JidoCode.Workflow.StepFactory do
+defmodule JidoCode.Workflow.ComponentFactory do
   @moduledoc """
-  Creates Reactor step implementations for different step types.
+  Builds Runic/Jido.Runic components for action, agent, and sub_workflow steps.
   """
-  
-  @doc """
-  Creates an action step wrapper implementing Reactor.Step behaviour.
-  """
-  def action_step(module) when is_atom(module) do
-    {JidoCode.Workflow.Steps.ActionStep, module: module}
+
+  alias Runic.Workflow
+  alias Runic.Workflow.Step
+  alias Jido.Runic.ActionNode
+  alias JidoCode.Workflow.{ArgumentResolver, AgentLifecycle, Registry}
+
+  def build(%{type: :action} = step) do
+    ActionNode.new(
+      JidoCode.Workflow.Actions.ExecuteActionStep,
+      %{step: step},
+      name: String.to_atom(step.name),
+      timeout: step[:timeout_ms] || 0
+    )
   end
-  
-  @doc """
-  Creates an agent step wrapper with lifecycle hooks.
-  """
-  def agent_step(agent_name, opts) do
-    {JidoCode.Workflow.Steps.AgentStep, 
-     Keyword.merge(opts, agent: agent_name)}
+
+  def build(%{type: :agent} = step) do
+    Step.new(
+      name: String.to_atom(step.name),
+      work: fn state ->
+        resolved = ArgumentResolver.resolve_inputs(step.inputs || %{}, state)
+
+        with {:ok, pre} <- AgentLifecycle.run_pre_actions(step[:pre_actions] || [], resolved),
+             {:ok, result} <- AgentLifecycle.execute(step, resolved, pre),
+             {:ok, final} <- AgentLifecycle.run_post_actions(step[:post_actions] || [], result) do
+          ArgumentResolver.put_result(state, step.name, final)
+        else
+          {:error, reason} ->
+            raise "agent step #{step.name} failed: #{inspect(reason)}"
+        end
+      end
+    )
+  end
+
+  def build(%{type: :sub_workflow} = step) do
+    Step.new(
+      name: String.to_atom(step.name),
+      work: fn state ->
+        sub_inputs = ArgumentResolver.resolve_inputs(step.inputs || %{}, state)
+        {:ok, %{workflow: sub_workflow}} = Registry.get_compiled(step.workflow)
+
+        executed =
+          Workflow.react_until_satisfied(
+            sub_workflow,
+            %{inputs: sub_inputs, results: %{}},
+            async: true
+          )
+
+        sub_result = Workflow.raw_productions(executed) |> List.last()
+        ArgumentResolver.put_result(state, step.name, sub_result)
+      end
+    )
   end
 end
 
-defmodule JidoCode.Workflow.Steps.ActionStep do
+defmodule JidoCode.Workflow.Actions.ExecuteActionStep do
   @moduledoc """
-  Reactor step that executes a Jido.Action.
+  Jido.Action adapter used by Jido.Runic.ActionNode for deterministic action steps.
   """
-  use Reactor.Step
-  
+  use Jido.Action,
+    name: "workflow_execute_action_step",
+    schema: [step: [type: :map, required: true]]
+
+  alias JidoCode.Workflow.ArgumentResolver
+
   @impl true
-  def run(arguments, context, options) do
-    module = Keyword.fetch!(options, :module)
-    
-    case module.run(Map.new(arguments), context) do
-      {:ok, result} -> {:ok, result}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-  
-  @impl true
-  def compensate(error, _arguments, _context, options) do
-    module = Keyword.fetch!(options, :module)
-    
-    if function_exported?(module, :compensate, 1) do
-      module.compensate(error)
-    else
-      :ok
-    end
-  end
-  
-  @impl true
-  def undo(result, arguments, _context, options) do
-    module = Keyword.fetch!(options, :module)
-    
-    if function_exported?(module, :undo, 2) do
-      module.undo(result, Map.new(arguments))
-    else
-      :ok
+  def run(%{step: step} = state, _context) do
+    resolved_inputs = ArgumentResolver.resolve_inputs(step.inputs || %{}, state)
+    state_without_step = Map.delete(state, :step)
+
+    case Jido.Exec.run(step.module, resolved_inputs, %{}, timeout: step[:timeout_ms] || 60_000) do
+      {:ok, result} ->
+        {:ok, ArgumentResolver.put_result(state_without_step, step.name, result)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 end
+```
 
-defmodule JidoCode.Workflow.Steps.AgentStep do
+### Return projection from Runic productions
+
+```elixir
+defmodule JidoCode.Workflow.ReturnProjector do
   @moduledoc """
-  Reactor step that executes a Jido Agent with pre/post actions.
+  Projects a workflow's final return value from Runic productions.
   """
-  use Reactor.Step
-  
-  alias JidoCode.Workflow.AgentLifecycle
-  
-  @impl true
-  def run(arguments, context, options) do
-    agent_name = Keyword.fetch!(options, :agent)
-    pre_actions = Keyword.get(options, :pre_actions, [])
-    post_actions = Keyword.get(options, :post_actions, [])
-    mode = Keyword.get(options, :mode, :sync)
-    timeout = Keyword.get(options, :timeout_ms, 60_000)
-    
-    with {:ok, pre_results} <- AgentLifecycle.run_pre_actions(pre_actions, arguments),
-         {:ok, agent_result} <- execute_agent(agent_name, arguments, pre_results, mode, timeout),
-         {:ok, final_result} <- AgentLifecycle.run_post_actions(post_actions, agent_result) do
-      {:ok, final_result}
-    end
+
+  def compile(nil), do: %{value: nil, transform: nil}
+  def compile(config), do: %{value: config[:value], transform: config[:transform]}
+
+  def project(productions, %{value: nil, transform: nil}) do
+    List.last(productions)
   end
-  
-  defp execute_agent(agent_name, arguments, pre_results, :sync, timeout) do
-    merged_args = Map.merge(Map.new(arguments), pre_results)
-    
-    case JidoCode.AgentRegistry.get_agent(agent_name) do
-      {:ok, agent_pid} ->
-        Jido.Agent.Runtime.cmd(agent_pid, :execute, merged_args, timeout: timeout)
-      {:error, :not_found} ->
-        {:error, {:agent_not_found, agent_name}}
-    end
+
+  def project(productions, %{value: _value, transform: nil}) do
+    productions |> List.last()
   end
-  
-  defp execute_agent(agent_name, arguments, pre_results, :async, _timeout) do
-    merged_args = Map.merge(Map.new(arguments), pre_results)
-    
-    case JidoCode.AgentRegistry.get_agent(agent_name) do
-      {:ok, agent_pid} ->
-        :ok = Jido.Agent.Runtime.cmd_async(agent_pid, :execute, merged_args)
-        {:ok, %{status: :async_started, agent: agent_name}}
-      {:error, :not_found} ->
-        {:error, {:agent_not_found, agent_name}}
-    end
+
+  def project(productions, %{value: _value, transform: transform_fn}) when is_function(transform_fn, 1) do
+    productions |> List.last() |> transform_fn.()
   end
-  
-  @impl true
-  def compensate(_error, _arguments, _context, options) do
-    # Agent compensation logic - potentially notify agent to rollback
-    agent_name = Keyword.fetch!(options, :agent)
-    JidoCode.AgentRegistry.notify_compensation(agent_name)
-    :ok
-  end
+end
+```
+
+### Signal-native execution with Jido.Runic.Strategy
+
+```elixir
+defmodule JidoCode.Workflow.RuntimeAgent do
+  use Jido.Agent,
+    name: "workflow_runtime",
+    strategy: Jido.Runic.Strategy,
+    schema: []
+
+  @doc false
+  def plugin_specs, do: []
 end
 ```
 
@@ -1153,13 +1095,15 @@ end
 defmodule JidoCode.Workflow.Engine do
   @moduledoc """
   Core workflow execution engine.
-  Coordinates Reactor execution with triggers, broadcasting, and lifecycle management.
+  Coordinates Runic compilation and Jido.Runic strategy execution.
   """
   use GenServer
   
-  alias JidoCode.Workflow.{Compiler, Broadcaster, Registry}
+  alias Runic.Workflow
+  alias Jido.Agent.Strategy.State, as: StratState
+  alias JidoCode.Workflow.{Compiler, Broadcaster, Registry, ReturnProjector}
   
-  defstruct [:workflow_id, :reactor, :run_id, :status, :context, :started_at]
+  defstruct [:workflow_id, :run_id, :status, :agent_pid, :started_at]
   
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -1184,17 +1128,16 @@ defmodule JidoCode.Workflow.Engine do
   @impl true
   def handle_call({:execute, workflow_id, inputs}, _from, state) do
     with {:ok, definition} <- Registry.get_workflow(workflow_id),
-         {:ok, reactor} <- Compiler.compile(definition),
+         {:ok, %{workflow: workflow, return: return_config}} <- Compiler.compile(definition),
+         {:ok, agent_pid} <- start_run_agent(workflow, definition.settings),
          run_id <- generate_run_id() do
-      
-      # Start async execution
-      task = Task.async(fn -> 
-        execute_reactor(reactor, inputs, workflow_id, run_id, definition.settings)
-      end)
+      :ok = feed_inputs(agent_pid, workflow_id, inputs)
+      task = Task.async(fn -> await_run(agent_pid, workflow_id, run_id, return_config, definition.settings) end)
       
       run_state = %{
         workflow_id: workflow_id,
         run_id: run_id,
+        agent_pid: agent_pid,
         task: task,
         status: :running,
         started_at: DateTime.utc_now()
@@ -1208,32 +1151,50 @@ defmodule JidoCode.Workflow.Engine do
     end
   end
   
-  defp execute_reactor(reactor, inputs, workflow_id, run_id, settings) do
-    options = [
-      max_concurrency: settings[:max_concurrency] || System.schedulers_online(),
-      timeout: settings[:timeout_ms] || :infinity,
-      async?: true
-    ]
-    
-    # Inject broadcast middleware
-    context = %{
-      workflow_id: workflow_id,
-      run_id: run_id,
-      broadcast_fn: &Broadcaster.broadcast_step_completed/4
-    }
-    
-    case Reactor.run(reactor, inputs, context, options) do
-      {:ok, result} ->
+  defp start_run_agent(workflow, settings) do
+    Jido.AgentServer.start_link(
+      agent: JidoCode.Workflow.RuntimeAgent,
+      jido: :jido_code,
+      strategy_opts: [
+        workflow: workflow,
+        max_concurrent: settings[:max_concurrency] || :infinity,
+        execution_mode: :auto
+      ],
+      debug: false
+    )
+  end
+
+  defp feed_inputs(agent_pid, workflow_id, inputs) do
+    signal =
+      Jido.Signal.new!(
+        "runic.feed",
+        %{data: %{inputs: inputs, results: %{}}},
+        source: "/jidocode/workflows/#{workflow_id}"
+      )
+
+    Jido.AgentServer.cast(agent_pid, signal)
+  end
+
+  defp await_run(agent_pid, workflow_id, run_id, return_config, settings) do
+    timeout = settings[:timeout_ms] || 300_000
+
+    case Jido.AgentServer.await_completion(agent_pid, timeout: timeout) do
+      {:ok, %{status: :completed}} ->
+        {:ok, server_state} = Jido.AgentServer.state(agent_pid)
+        strat = StratState.get(server_state.agent)
+        productions = Workflow.raw_productions(strat.workflow)
+        result = ReturnProjector.project(productions, return_config)
+
         Broadcaster.broadcast_workflow_complete(workflow_id, run_id, :completed, result)
         {:ok, result}
-        
+
+      {:ok, %{status: :failed}} ->
+        Broadcaster.broadcast_workflow_complete(workflow_id, run_id, :failed, :runic_failed)
+        {:error, :runic_failed}
+
       {:error, reason} ->
         Broadcaster.broadcast_workflow_complete(workflow_id, run_id, :failed, reason)
         {:error, reason}
-        
-      {:halted, halted_reactor} ->
-        Broadcaster.broadcast_workflow_complete(workflow_id, run_id, :halted, nil)
-        {:halted, halted_reactor}
     end
   end
   
@@ -1487,21 +1448,44 @@ end
 ### Skills as workflow components
 
 ```elixir
-defmodule JidoCode.Workflow.SkillStep do
+defmodule JidoCode.Workflow.SkillComponent do
   @moduledoc """
-  Allows Skills to be used as workflow steps.
+  Allows Skills to be used as Runic workflow components.
   """
-  use Reactor.Step
-  
-  @impl true
-  def run(arguments, context, options) do
-    skill_module = Keyword.fetch!(options, :skill)
-    
-    # Skills can handle signals and produce outputs
-    case skill_module.handle_workflow_step(arguments, context) do
-      {:ok, result} -> {:ok, result}
-      {:error, reason} -> {:error, reason}
-    end
+
+  alias Runic.Workflow.Step
+  alias JidoCode.Workflow.ArgumentResolver
+
+  def new(skill_module, opts \\ []) do
+    step_name =
+      Keyword.get_lazy(opts, :name, fn ->
+        skill_module |> Module.split() |> List.last() |> Macro.underscore() |> String.to_atom()
+      end)
+
+    Step.new(
+      name: step_name,
+      work: fn state ->
+        skill_inputs = ArgumentResolver.resolve_inputs(Keyword.get(opts, :inputs, %{}), state)
+
+        case skill_module.handle_workflow_step(skill_inputs, state) do
+          {:ok, result} ->
+            ArgumentResolver.put_result(state, to_string(step_name), result)
+
+          {:error, reason} ->
+            raise "skill step #{step_name} failed: #{inspect(reason)}"
+        end
+      end
+    )
+  end
+end
+
+defmodule JidoCode.Workflow.StepFactory do
+  def build(:skill, config) do
+    JidoCode.Workflow.SkillComponent.new(
+      config.module,
+      name: config.name,
+      inputs: config.inputs || %{}
+    )
   end
 end
 ```
@@ -1528,7 +1512,7 @@ end
 
 ## Key design decisions
 
-**Reactor over custom DAG implementation**: Reactor provides battle-tested saga patterns with retry, compensation, and undo capabilities. Its Builder API allows complete runtime workflow construction from parsed markdown, eliminating the need for compile-time DSL macros.
+**Runic + jido_runic over custom DAG implementation**: Runic provides runtime-composable DAG workflows with a three-phase execution model (`prepare -> execute -> apply`) that fits parallel and externally scheduled runtimes. `jido_runic` adds first-class bridges (`Jido.Runic.ActionNode`, `Jido.Runic.Strategy`, Runnable directives) so DAG execution integrates directly with Jido signals and agent lifecycle semantics.
 
 **Markdown-based definitions**: Following the existing JidoCode pattern for agents and skills, markdown provides human-readable workflow definitions with YAML frontmatter for structured configuration. This enables version control, documentation, and easy editing.
 
@@ -1538,4 +1522,4 @@ end
 
 **Phoenix Channels for real-time updates**: Each workflow run broadcasts progress to its configured channel topic, enabling TUI updates and external integrations to observe workflow execution in real-time.
 
-This design creates a powerful, extensible workflow orchestration system that integrates deeply with JidoCode's existing architecture while leveraging Reactor's robust execution engine for reliable DAG processing.
+This design creates a powerful, extensible workflow orchestration system that integrates deeply with JidoCode's existing architecture while leveraging Runic and jido_runic for reliable DAG execution and signal-native orchestration.
