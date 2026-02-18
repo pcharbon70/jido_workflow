@@ -4,6 +4,7 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
 
   Supported trigger implementations:
   - `file_system`
+  - `git_hook`
   - `scheduled`
   - `signal`
   - `manual`
@@ -12,6 +13,7 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
   use DynamicSupervisor
 
   alias JidoWorkflow.Workflow.Triggers.FileSystem
+  alias JidoWorkflow.Workflow.Triggers.GitHook
   alias JidoWorkflow.Workflow.Triggers.Manual
   alias JidoWorkflow.Workflow.Triggers.Scheduled
   alias JidoWorkflow.Workflow.Triggers.Signal
@@ -82,6 +84,7 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
   defp trigger_module(config) do
     case fetch(config, "type") do
       "file_system" -> {:ok, FileSystem}
+      "git_hook" -> {:ok, GitHook}
       "scheduled" -> {:ok, Scheduled}
       "signal" -> {:ok, Signal}
       "manual" -> {:ok, Manual}
