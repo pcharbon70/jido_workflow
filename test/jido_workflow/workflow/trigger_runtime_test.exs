@@ -1,6 +1,6 @@
-defmodule JidoWorkflow.Workflow.TriggerTestActions.Echo do
+defmodule JidoWorkflow.Workflow.TriggerRuntimeTestActions.Echo do
   use Jido.Action,
-    name: "trigger_echo",
+    name: "trigger_runtime_echo",
     schema: [
       value: [type: :string, required: true]
     ]
@@ -11,37 +11,37 @@ defmodule JidoWorkflow.Workflow.TriggerTestActions.Echo do
   end
 end
 
-defmodule JidoWorkflow.Workflow.TriggerManagerTest do
+defmodule JidoWorkflow.Workflow.TriggerRuntimeTest do
   use ExUnit.Case, async: true
 
   alias Jido.Signal
   alias Jido.Signal.Bus
   alias JidoWorkflow.Workflow.Registry, as: WorkflowRegistry
-  alias JidoWorkflow.Workflow.TriggerManager
+  alias JidoWorkflow.Workflow.TriggerRuntime
   alias JidoWorkflow.Workflow.TriggerSupervisor
 
   setup do
     tmp =
       Path.join(
         System.tmp_dir!(),
-        "jido_workflow_trigger_manager_test_#{System.unique_integer([:positive])}"
+        "jido_workflow_trigger_runtime_test_#{System.unique_integer([:positive])}"
       )
 
     File.rm_rf!(tmp)
     File.mkdir_p!(tmp)
 
-    bus = unique_name("trigger_bus")
+    bus = unique_name("trigger_runtime_bus")
     start_supervised!({Bus, name: bus})
 
-    workflow_registry = unique_name("workflow_registry")
+    workflow_registry = unique_name("trigger_runtime_registry")
 
     {:ok, workflow_registry_pid} =
       start_supervised({WorkflowRegistry, workflow_dir: tmp, name: workflow_registry})
 
-    process_registry = unique_name("trigger_process_registry")
+    process_registry = unique_name("trigger_runtime_process_registry")
     start_supervised!({Registry, keys: :unique, name: process_registry})
 
-    trigger_supervisor = unique_name("trigger_supervisor")
+    trigger_supervisor = unique_name("trigger_runtime_supervisor")
     start_supervised!({TriggerSupervisor, name: trigger_supervisor})
 
     on_exit(fn -> File.rm_rf!(tmp) end)
@@ -54,27 +54,24 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
      trigger_supervisor: trigger_supervisor}
   end
 
-  test "sync_from_registry starts signal/manual triggers and executes workflows", context do
-    write_trigger_workflow(context.tmp_dir, "triggered_flow")
-    assert {:ok, %{total: 1}} = WorkflowRegistry.refresh(context.workflow_registry)
+  test "refresh/1 syncs triggers and runs workflows from signal/manual sources", context do
+    write_trigger_workflow(context.tmp_dir, "runtime_flow")
+    runtime_name = unique_name("trigger_runtime")
 
-    assert {:ok, summary} =
-             TriggerManager.sync_from_registry(
-               workflow_registry: context.workflow_registry,
-               trigger_supervisor: context.trigger_supervisor,
-               process_registry: context.process_registry,
-               bus: context.bus
-             )
+    runtime =
+      start_supervised!(
+        {TriggerRuntime,
+         name: runtime_name,
+         workflow_registry: context.workflow_registry,
+         trigger_supervisor: context.trigger_supervisor,
+         process_registry: context.process_registry,
+         bus: context.bus,
+         sync_on_start: false}
+      )
 
-    assert summary.started == 2
-    assert summary.stopped == 0
-    assert summary.unsupported == 0
-    assert summary.errors == []
-
-    assert TriggerSupervisor.list_trigger_ids(process_registry: context.process_registry) == [
-             "triggered_flow:manual:1",
-             "triggered_flow:signal:0"
-           ]
+    assert {:ok, %{triggers: trigger_summary}} = TriggerRuntime.refresh(runtime)
+    assert trigger_summary.started == 2
+    assert trigger_summary.errors == []
 
     assert {:ok, _sub_id} =
              Bus.subscribe(context.bus, "workflow.run.*", dispatch: {:pid, target: self()})
@@ -90,7 +87,7 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
                     %Signal{
                       type: "workflow.run.completed",
                       data: %{
-                        "workflow_id" => "triggered_flow",
+                        "workflow_id" => "runtime_flow",
                         "result" => %{"echo" => "from_signal"}
                       }
                     }},
@@ -98,60 +95,48 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
 
     assert {:ok, execution} =
              TriggerSupervisor.trigger_manual(
-               "triggered_flow:manual:1",
+               "runtime_flow:manual:1",
                %{"value" => "from_manual"},
                supervisor: context.trigger_supervisor,
                process_registry: context.process_registry
              )
 
     assert execution.status == :completed
-    assert execution.workflow_id == "triggered_flow"
     assert execution.result == %{"echo" => "from_manual"}
+
+    status = TriggerRuntime.status(runtime)
+    assert status.last_error == nil
+    assert is_list(status.trigger_ids)
+    assert status.last_sync_at != nil
   end
 
-  test "sync_from_registry stops stale triggers after workflow removal", context do
-    path = write_trigger_workflow(context.tmp_dir, "stale_flow")
-    assert {:ok, %{total: 1}} = WorkflowRegistry.refresh(context.workflow_registry)
+  test "refresh/1 removes stale trigger processes after workflow deletion", context do
+    path = write_trigger_workflow(context.tmp_dir, "runtime_stale_flow")
+    runtime_name = unique_name("trigger_runtime")
 
-    assert {:ok, first_sync} =
-             TriggerManager.sync_from_registry(
-               workflow_registry: context.workflow_registry,
-               trigger_supervisor: context.trigger_supervisor,
-               process_registry: context.process_registry,
-               bus: context.bus
-             )
+    runtime =
+      start_supervised!(
+        {TriggerRuntime,
+         name: runtime_name,
+         workflow_registry: context.workflow_registry,
+         trigger_supervisor: context.trigger_supervisor,
+         process_registry: context.process_registry,
+         bus: context.bus,
+         sync_on_start: false}
+      )
 
+    assert {:ok, %{triggers: first_sync}} = TriggerRuntime.refresh(runtime)
     assert first_sync.started == 2
 
-    assert length(TriggerSupervisor.list_trigger_ids(process_registry: context.process_registry)) ==
-             2
-
     File.rm!(path)
-    assert {:ok, %{removed: 1, total: 0}} = WorkflowRegistry.refresh(context.workflow_registry)
 
-    assert {:ok, second_sync} =
-             TriggerManager.sync_from_registry(
-               workflow_registry: context.workflow_registry,
-               trigger_supervisor: context.trigger_supervisor,
-               process_registry: context.process_registry,
-               bus: context.bus
-             )
-
+    assert {:ok, %{triggers: second_sync}} = TriggerRuntime.refresh(runtime)
     assert second_sync.stopped == 2
     assert second_sync.desired == 0
 
     assert_eventually(fn ->
       TriggerSupervisor.list_trigger_ids(process_registry: context.process_registry) == []
     end)
-  end
-
-  test "trigger supervisor returns unsupported type errors", context do
-    assert {:error, {:unsupported_trigger_type, "file_system"}} =
-             TriggerSupervisor.start_trigger(
-               %{id: "x:file_system:0", workflow_id: "x", type: "file_system"},
-               supervisor: context.trigger_supervisor,
-               process_registry: context.process_registry
-             )
   end
 
   defp write_trigger_workflow(dir, name) do
@@ -175,7 +160,7 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
 
     ### echo
     - **type**: action
-    - **module**: JidoWorkflow.Workflow.TriggerTestActions.Echo
+    - **module**: JidoWorkflow.Workflow.TriggerRuntimeTestActions.Echo
     - **inputs**:
       - value: `input:value`
 

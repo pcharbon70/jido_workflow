@@ -4,6 +4,13 @@ defmodule JidoWorkflow.Application do
   use Application
 
   @signal_bus Application.compile_env(:jido_workflow, :signal_bus, :jido_workflow_bus)
+  @workflow_registry Application.compile_env(
+                       :jido_workflow,
+                       :workflow_registry,
+                       JidoWorkflow.Workflow.Registry
+                     )
+
+  @workflow_dir Application.compile_env(:jido_workflow, :workflow_dir, ".jido_code/workflows")
   @trigger_process_registry Application.compile_env(
                               :jido_workflow,
                               :trigger_process_registry,
@@ -16,12 +23,32 @@ defmodule JidoWorkflow.Application do
                         JidoWorkflow.Workflow.TriggerSupervisor
                       )
 
+  @trigger_runtime Application.compile_env(
+                     :jido_workflow,
+                     :trigger_runtime,
+                     JidoWorkflow.Workflow.TriggerRuntime
+                   )
+
+  @trigger_sync_interval_ms Application.compile_env(
+                              :jido_workflow,
+                              :trigger_sync_interval_ms,
+                              nil
+                            )
+
   @impl true
   def start(_type, _args) do
     children = [
       {Jido.Signal.Bus, name: @signal_bus},
       {Registry, keys: :unique, name: @trigger_process_registry},
-      {JidoWorkflow.Workflow.TriggerSupervisor, name: @trigger_supervisor}
+      {JidoWorkflow.Workflow.TriggerSupervisor, name: @trigger_supervisor},
+      {JidoWorkflow.Workflow.Registry, name: @workflow_registry, workflow_dir: @workflow_dir},
+      {JidoWorkflow.Workflow.TriggerRuntime,
+       name: @trigger_runtime,
+       workflow_registry: @workflow_registry,
+       trigger_supervisor: @trigger_supervisor,
+       process_registry: @trigger_process_registry,
+       bus: @signal_bus,
+       sync_interval_ms: @trigger_sync_interval_ms}
     ]
 
     opts = [strategy: :one_for_one, name: JidoWorkflow.Supervisor]
