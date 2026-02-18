@@ -5,13 +5,12 @@ defmodule JidoWorkflow.Workflow.Compiler do
 
   alias Jido.Runic.ActionNode
   alias JidoWorkflow.Workflow.Actions.ExecuteActionStep
+  alias JidoWorkflow.Workflow.Actions.ExecuteAgentStep
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
-  alias JidoWorkflow.Workflow.ArgumentResolver
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.ValidationError
   alias Runic.Workflow
-  alias Runic.Workflow.Step, as: RunicStep
 
   @type compiled_bundle :: %{
           workflow: Workflow.t(),
@@ -231,7 +230,9 @@ defmodule JidoWorkflow.Workflow.Compiler do
   end
 
   defp build_component(%DefinitionStep{type: "agent"} = step) do
-    {:ok, build_metadata_step(step)}
+    params = %{step: serialize_action_step(step)}
+    timeout = step.timeout_ms || 0
+    {:ok, ActionNode.new(ExecuteAgentStep, params, name: step.name, timeout: timeout)}
   end
 
   defp build_component(%DefinitionStep{type: "sub_workflow"} = step) do
@@ -249,33 +250,6 @@ defmodule JidoWorkflow.Workflow.Compiler do
          "unsupported step type: #{inspect(type)}"
        )
      ]}
-  end
-
-  defp build_metadata_step(step) do
-    metadata = serialize_step(step)
-
-    RunicStep.new(
-      name: step.name,
-      work: fn input ->
-        state = ArgumentResolver.normalize_state(input)
-
-        placeholder_result = %{
-          "step" => metadata["name"],
-          "type" => metadata["type"],
-          "workflow" => metadata["workflow"],
-          "agent" => metadata["agent"],
-          "status" => "not_implemented"
-        }
-
-        ArgumentResolver.put_result(state, metadata["name"], placeholder_result)
-      end
-    )
-  end
-
-  defp serialize_step(step) do
-    step
-    |> Map.from_struct()
-    |> Enum.into(%{}, fn {key, value} -> {Atom.to_string(key), value} end)
   end
 
   defp serialize_action_step(step) do
