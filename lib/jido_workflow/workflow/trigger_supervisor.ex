@@ -4,6 +4,7 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
 
   Supported trigger implementations:
   - `file_system`
+  - `scheduled`
   - `signal`
   - `manual`
   """
@@ -12,6 +13,7 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
 
   alias JidoWorkflow.Workflow.Triggers.FileSystem
   alias JidoWorkflow.Workflow.Triggers.Manual
+  alias JidoWorkflow.Workflow.Triggers.Scheduled
   alias JidoWorkflow.Workflow.Triggers.Signal
 
   @default_process_registry JidoWorkflow.Workflow.TriggerProcessRegistry
@@ -80,6 +82,7 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
   defp trigger_module(config) do
     case fetch(config, "type") do
       "file_system" -> {:ok, FileSystem}
+      "scheduled" -> {:ok, Scheduled}
       "signal" -> {:ok, Signal}
       "manual" -> {:ok, Manual}
       type -> {:error, {:unsupported_trigger_type, type}}
