@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+run_mix() {
+  if command -v asdf >/dev/null 2>&1; then
+    asdf exec mix "$@"
+  else
+    mix "$@"
+  fi
+}
+
+if ! command -v mix >/dev/null 2>&1 && ! command -v asdf >/dev/null 2>&1; then
+  echo "pre-commit: neither 'mix' nor 'asdf' is available on PATH"
+  exit 1
+fi
+
+echo "pre-commit: running test suite"
+run_mix test
+
+echo "pre-commit: running Credo"
+run_mix credo --strict
+
+echo "pre-commit: running Dialyzer"
+run_mix dialyzer
+
+echo "pre-commit: all checks passed"
