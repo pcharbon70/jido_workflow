@@ -53,17 +53,36 @@ defmodule JidoWorkflow.Workflow.Engine do
 
   @spec pause(String.t(), keyword()) :: :ok | {:error, term()}
   def pause(run_id, opts \\ []) when is_binary(run_id) do
-    RunStore.mark_paused(run_id, %{}, run_store(opts))
+    store = run_store(opts)
+
+    with :ok <- RunStore.mark_paused(run_id, %{}, store),
+         {:ok, run} <- RunStore.get(run_id, store) do
+      _ = maybe_broadcast_paused(run, opts)
+      :ok
+    end
   end
 
   @spec resume(String.t(), keyword()) :: :ok | {:error, term()}
   def resume(run_id, opts \\ []) when is_binary(run_id) do
-    RunStore.mark_resumed(run_id, %{}, run_store(opts))
+    store = run_store(opts)
+
+    with :ok <- RunStore.mark_resumed(run_id, %{}, store),
+         {:ok, run} <- RunStore.get(run_id, store) do
+      _ = maybe_broadcast_resumed(run, opts)
+      :ok
+    end
   end
 
   @spec cancel(String.t(), keyword()) :: :ok | {:error, term()}
   def cancel(run_id, opts \\ []) when is_binary(run_id) do
-    RunStore.mark_cancelled(run_id, :cancelled, %{}, run_store(opts))
+    reason = Keyword.get(opts, :reason, :cancelled)
+    store = run_store(opts)
+
+    with :ok <- RunStore.mark_cancelled(run_id, reason, %{}, store),
+         {:ok, run} <- RunStore.get(run_id, store) do
+      _ = maybe_broadcast_cancelled(run, reason, opts)
+      :ok
+    end
   end
 
   @spec list_runs(keyword()) :: [RunStore.run()]
@@ -440,6 +459,33 @@ defmodule JidoWorkflow.Workflow.Engine do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
+  defp maybe_broadcast_paused(run, opts) do
+    Broadcaster.broadcast_workflow_paused(
+      run.workflow_id,
+      run.run_id,
+      %{"backend" => format_backend(run.backend)},
+      bus: Keyword.get(opts, :bus, Broadcaster.default_bus())
+    )
+  end
+
+  defp maybe_broadcast_resumed(run, opts) do
+    Broadcaster.broadcast_workflow_resumed(
+      run.workflow_id,
+      run.run_id,
+      %{"backend" => format_backend(run.backend)},
+      bus: Keyword.get(opts, :bus, Broadcaster.default_bus())
+    )
+  end
+
+  defp maybe_broadcast_cancelled(run, reason, opts) do
+    Broadcaster.broadcast_workflow_cancelled(
+      run.workflow_id,
+      run.run_id,
+      reason,
+      bus: Keyword.get(opts, :bus, Broadcaster.default_bus())
+    )
+  end
+
   defp maybe_broadcast_started(compiled, workflow_id, run_id, metadata, opts) do
     if broadcast_event_enabled?(compiled, @broadcast_event_step_started) do
       Broadcaster.broadcast_workflow_started(
@@ -680,6 +726,9 @@ defmodule JidoWorkflow.Workflow.Engine do
 
   defp maybe_put_opt(opts, _key, nil), do: opts
   defp maybe_put_opt(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp format_backend(backend) when backend in [:direct, :strategy], do: Atom.to_string(backend)
+  defp format_backend(_backend), do: nil
 
   defp maybe_apply_failure_policy(
          compiled,

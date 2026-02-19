@@ -63,6 +63,84 @@ defmodule JidoWorkflow.Workflow.BroadcasterTest do
                     }}
   end
 
+  test "broadcasts workflow paused signal" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    assert {:ok, [_recorded]} =
+             Broadcaster.broadcast_workflow_paused(
+               "code_review",
+               "run_3a",
+               %{"backend" => "direct"},
+               bus: bus
+             )
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.paused",
+                      data: %{
+                        "workflow_id" => "code_review",
+                        "run_id" => "run_3a",
+                        "status" => "paused",
+                        "metadata" => %{"backend" => "direct"}
+                      }
+                    }}
+  end
+
+  test "broadcasts workflow resumed signal" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    assert {:ok, [_recorded]} =
+             Broadcaster.broadcast_workflow_resumed(
+               "code_review",
+               "run_3b",
+               %{"backend" => "strategy"},
+               bus: bus
+             )
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.resumed",
+                      data: %{
+                        "workflow_id" => "code_review",
+                        "run_id" => "run_3b",
+                        "status" => "running",
+                        "metadata" => %{"backend" => "strategy"}
+                      }
+                    }}
+  end
+
+  test "broadcasts workflow cancelled signal" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    assert {:ok, [_recorded]} =
+             Broadcaster.broadcast_workflow_cancelled(
+               "code_review",
+               "run_3c",
+               :user_cancelled,
+               bus: bus
+             )
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.cancelled",
+                      data: %{
+                        "workflow_id" => "code_review",
+                        "run_id" => "run_3c",
+                        "status" => "cancelled",
+                        "reason" => "user_cancelled"
+                      }
+                    }}
+  end
+
   test "broadcasts workflow step started signal" do
     bus = start_test_bus()
 

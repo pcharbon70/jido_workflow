@@ -590,20 +590,47 @@ defmodule JidoWorkflow.Workflow.EngineTest do
 
   test "pause/2, resume/2 and cancel/2 apply run control transitions in run store" do
     run_store = start_test_run_store()
+    bus = start_test_bus()
 
-    assert :ok = RunStore.record_started(%{run_id: "run_ctrl", workflow_id: "flow"}, run_store)
-    assert :ok = Engine.pause("run_ctrl", run_store: run_store)
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_ctrl", workflow_id: "flow", backend: :direct},
+               run_store
+             )
+
+    assert :ok = Engine.pause("run_ctrl", run_store: run_store, bus: bus)
     assert {:ok, paused} = RunStore.get("run_ctrl", run_store)
     assert paused.status == :paused
 
-    assert :ok = Engine.resume("run_ctrl", run_store: run_store)
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.paused",
+                      data: %{"run_id" => "run_ctrl", "status" => "paused"}
+                    }}
+
+    assert :ok = Engine.resume("run_ctrl", run_store: run_store, bus: bus)
     assert {:ok, resumed} = RunStore.get("run_ctrl", run_store)
     assert resumed.status == :running
 
-    assert :ok = Engine.cancel("run_ctrl", run_store: run_store)
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.resumed",
+                      data: %{"run_id" => "run_ctrl", "status" => "running"}
+                    }}
+
+    assert :ok = Engine.cancel("run_ctrl", run_store: run_store, bus: bus)
     assert {:ok, cancelled} = RunStore.get("run_ctrl", run_store)
     assert cancelled.status == :cancelled
     assert cancelled.error == :cancelled
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.cancelled",
+                      data: %{"run_id" => "run_ctrl", "status" => "cancelled"}
+                    }}
   end
 
   test "pause/2, resume/2 and cancel/2 return transition errors for invalid state changes" do
