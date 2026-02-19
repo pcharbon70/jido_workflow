@@ -8,15 +8,15 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
   - `scheduled`
   - `signal`
   - `manual`
+
+  Additional trigger types can be registered via
+  `JidoWorkflow.Workflow.PluginExtensions.register_trigger_type/2`.
   """
 
   use DynamicSupervisor
 
-  alias JidoWorkflow.Workflow.Triggers.FileSystem
-  alias JidoWorkflow.Workflow.Triggers.GitHook
   alias JidoWorkflow.Workflow.Triggers.Manual
-  alias JidoWorkflow.Workflow.Triggers.Scheduled
-  alias JidoWorkflow.Workflow.Triggers.Signal
+  alias JidoWorkflow.Workflow.TriggerTypeRegistry
 
   @default_process_registry JidoWorkflow.Workflow.TriggerProcessRegistry
 
@@ -82,13 +82,12 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
   end
 
   defp trigger_module(config) do
-    case fetch(config, "type") do
-      "file_system" -> {:ok, FileSystem}
-      "git_hook" -> {:ok, GitHook}
-      "scheduled" -> {:ok, Scheduled}
-      "signal" -> {:ok, Signal}
-      "manual" -> {:ok, Manual}
-      type -> {:error, {:unsupported_trigger_type, type}}
+    case TriggerTypeRegistry.resolve(fetch(config, "type")) do
+      {:ok, module} ->
+        {:ok, module}
+
+      {:error, {:unsupported_trigger_type, type}} ->
+        {:error, {:unsupported_trigger_type, type}}
     end
   end
 

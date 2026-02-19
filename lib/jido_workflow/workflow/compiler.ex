@@ -13,6 +13,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
   alias JidoWorkflow.Workflow.Definition.Settings, as: DefinitionSettings
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.InputContract
+  alias JidoWorkflow.Workflow.StepTypeRegistry
   alias JidoWorkflow.Workflow.ValidationError
   alias Runic.Workflow
 
@@ -256,25 +257,50 @@ defmodule JidoWorkflow.Workflow.Compiler do
        ]}
   end
 
-  defp build_component(%DefinitionStep{type: "action"} = step) do
+  defp build_component(%DefinitionStep{type: type} = step) do
+    case StepTypeRegistry.resolve(type) do
+      {:ok, {:builtin, :action}} ->
+        build_action_component(step)
+
+      {:ok, {:builtin, :agent}} ->
+        build_agent_component(step)
+
+      {:ok, {:builtin, :sub_workflow}} ->
+        build_sub_workflow_component(step)
+
+      {:ok, module} when is_atom(module) ->
+        build_custom_component(step, module)
+
+      {:error, _reason} ->
+        unsupported_step_type_error(step, type)
+    end
+  end
+
+  defp build_action_component(step) do
     params = %{step: serialize_action_step(step)}
     timeout = step.timeout_ms || 0
     {:ok, ActionNode.new(ExecuteActionStep, params, name: step.name, timeout: timeout)}
   end
 
-  defp build_component(%DefinitionStep{type: "agent"} = step) do
+  defp build_agent_component(step) do
     params = %{step: serialize_action_step(step)}
     timeout = step.timeout_ms || 0
     {:ok, ActionNode.new(ExecuteAgentStep, params, name: step.name, timeout: timeout)}
   end
 
-  defp build_component(%DefinitionStep{type: "sub_workflow"} = step) do
+  defp build_sub_workflow_component(step) do
     params = %{step: serialize_sub_workflow_step(step)}
     timeout = step.timeout_ms || 0
     {:ok, ActionNode.new(ExecuteSubWorkflowStep, params, name: step.name, timeout: timeout)}
   end
 
-  defp build_component(%DefinitionStep{name: name, type: type}) do
+  defp build_custom_component(step, module) do
+    params = %{step: serialize_custom_step(step)}
+    timeout = step.timeout_ms || 0
+    {:ok, ActionNode.new(module, params, name: step.name, timeout: timeout)}
+  end
+
+  defp unsupported_step_type_error(%DefinitionStep{name: name}, type) do
     {:error,
      [
        error(
@@ -283,6 +309,10 @@ defmodule JidoWorkflow.Workflow.Compiler do
          "unsupported step type: #{inspect(type)}"
        )
      ]}
+  end
+
+  defp serialize_custom_step(step) do
+    Map.from_struct(step)
   end
 
   defp serialize_action_step(step) do
