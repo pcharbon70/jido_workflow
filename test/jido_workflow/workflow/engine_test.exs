@@ -76,9 +76,11 @@ defmodule JidoWorkflow.Workflow.EngineTest do
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
+  alias JidoWorkflow.Workflow.Definition.Input, as: DefinitionInput
   alias JidoWorkflow.Workflow.Definition.Settings
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Engine
+  alias JidoWorkflow.Workflow.ValidationError
 
   test "execute_compiled/3 executes workflow and projects configured return value (direct backend)" do
     bus = start_test_bus()
@@ -357,6 +359,122 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     refute_receive {:signal, %Signal{type: "workflow.step.failed"}}
   end
 
+  test "execute_compiled/3 applies declared input defaults before workflow execution" do
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "slow_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Slow",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        inputs: [
+          %DefinitionInput{
+            name: "file_path",
+            type: "string",
+            required: true,
+            default: nil,
+            description: nil
+          },
+          %DefinitionInput{
+            name: "diff_content",
+            type: "string",
+            required: false,
+            default: "diff unavailable",
+            description: nil
+          }
+        ]
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               backend: :direct
+             )
+
+    assert execution.status == :completed
+    assert execution.result["inputs"]["file_path"] == "lib/example.ex"
+    assert execution.result["inputs"]["diff_content"] == "diff unavailable"
+  end
+
+  test "execute_compiled/3 rejects missing required workflow inputs before starting workflow" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "slow_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Slow",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        inputs: [
+          %DefinitionInput{
+            name: "file_path",
+            type: "string",
+            required: true,
+            default: nil,
+            description: nil
+          }
+        ]
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error,
+            {:invalid_inputs,
+             [%ValidationError{path: ["inputs", "file_path"], code: :required} | _]}} =
+             Engine.execute_compiled(compiled, %{}, bus: bus, backend: :direct)
+
+    refute_receive {:signal, %Signal{type: "workflow.run.started"}}
+
+    assert_receive {:signal, %Signal{type: "workflow.run.failed", data: %{"reason" => reason}}}
+
+    assert is_binary(reason)
+    assert String.contains?(reason, "invalid_inputs")
+  end
+
+  test "execute_compiled/3 rejects workflow input values with invalid declared types" do
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "slow_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Slow",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        inputs: [
+          %DefinitionInput{
+            name: "retry_count",
+            type: "integer",
+            required: true,
+            default: nil,
+            description: nil
+          }
+        ]
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error,
+            {:invalid_inputs,
+             [%ValidationError{path: ["inputs", "retry_count"], code: :invalid_type} | _]}} =
+             Engine.execute_compiled(compiled, %{"retry_count" => "3"}, backend: :direct)
+  end
+
   test "execute_compiled/3 broadcasts failed signal when execution fails (direct backend)" do
     bus = start_test_bus()
 
@@ -606,7 +724,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
       version: "1.0.0",
       description: "engine test",
       enabled: true,
-      inputs: [],
+      inputs: Keyword.get(opts, :inputs, []),
       triggers: [],
       settings: Keyword.get(opts, :settings),
       channel: Keyword.get(opts, :channel),

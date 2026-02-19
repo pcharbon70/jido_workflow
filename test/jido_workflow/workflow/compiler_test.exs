@@ -7,6 +7,7 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
+  alias JidoWorkflow.Workflow.Definition.Input, as: DefinitionInput
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Loader
   alias Runic.Workflow
@@ -125,13 +126,55 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert compiled.channel.broadcast_events == ["workflow_complete"]
   end
 
+  test "compile/1 includes normalized workflow input schema" do
+    definition =
+      base_definition(
+        [step("parse_file", type: "action", module: "Example.Actions.ParseFile", agent: nil)],
+        inputs: [
+          %DefinitionInput{
+            name: "file_path",
+            type: "string",
+            required: true,
+            default: nil,
+            description: "Path to file"
+          },
+          %DefinitionInput{
+            name: "max_retries",
+            type: "integer",
+            required: false,
+            default: 3,
+            description: nil
+          }
+        ]
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert compiled.input_schema == [
+             %{
+               name: "file_path",
+               type: "string",
+               required: true,
+               default: nil,
+               description: "Path to file"
+             },
+             %{
+               name: "max_retries",
+               type: "integer",
+               required: false,
+               default: 3,
+               description: nil
+             }
+           ]
+  end
+
   defp base_definition(steps, opts \\ []) do
     %Definition{
       name: "example_workflow",
       version: "1.0.0",
       description: "example",
       enabled: true,
-      inputs: [],
+      inputs: Keyword.get(opts, :inputs, []),
       triggers: [],
       settings: nil,
       channel: Keyword.get(opts, :channel),
