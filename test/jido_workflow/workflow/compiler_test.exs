@@ -3,6 +3,7 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
 
   alias Jido.Runic.ActionNode
   alias JidoWorkflow.Workflow.Actions.ExecuteAgentStep
+  alias JidoWorkflow.Workflow.Actions.ExecuteSkillStep
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
@@ -166,6 +167,26 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
                description: nil
              }
            ]
+  end
+
+  test "compile/1 maps built-in skill steps to ExecuteSkillStep" do
+    definition =
+      base_definition([
+        step("run_skill",
+          type: "skill",
+          module: "JidoWorkflow.TestSkills.CompilerSkill",
+          agent: nil,
+          inputs: %{"path" => "`input:file_path`"}
+        )
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert %ActionNode{
+             name: "run_skill",
+             action_mod: ExecuteSkillStep,
+             params: %{step: %{type: "skill", module: "JidoWorkflow.TestSkills.CompilerSkill"}}
+           } = Workflow.get_component(compiled.workflow, "run_skill")
   end
 
   defp base_definition(steps, opts \\ []) do

@@ -279,6 +279,10 @@ defmodule JidoWorkflow.Workflow.Validator do
     error(errors, path ++ ["module"], :required, "module is required for action steps")
   end
 
+  defp validate_step_requirements(errors, "skill", nil, _agent, _workflow, path) do
+    error(errors, path ++ ["module"], :required, "module is required for skill steps")
+  end
+
   defp validate_step_requirements(errors, "agent", _module, nil, _workflow, path) do
     error(errors, path ++ ["agent"], :required, "agent is required for agent steps")
   end
