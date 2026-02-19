@@ -72,7 +72,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
           "workflow.run.start.*",
           "workflow.run.pause.*",
           "workflow.run.resume.*",
-          "workflow.run.cancel.*"
+          "workflow.run.cancel.*",
+          "workflow.run.get.*",
+          "workflow.run.list.*",
+          "workflow.runtime.status.*"
         ] do
       assert {:ok, _sub_id} = Bus.subscribe(bus, pattern, dispatch: {:pid, target: self()})
     end
@@ -265,6 +268,107 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
 
     assert String.contains?(reason, "invalid_transition")
+  end
+
+  test "returns run details for workflow.run.get.requested", context do
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_get", workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_completed(
+               "run_get",
+               %{"ok" => true},
+               %{workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.run.get.requested", %{"run_id" => "run_get"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.get.accepted",
+                      data: %{
+                        "run" => %{
+                          "run_id" => "run_get",
+                          "workflow_id" => "command_flow",
+                          "status" => "completed",
+                          "backend" => "direct",
+                          "result" => %{"ok" => true}
+                        }
+                      }
+                    }},
+                   5_000
+  end
+
+  test "returns filtered runs for workflow.run.list.requested", context do
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_list_1", workflow_id: "flow_a", backend: :direct},
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_failed(
+               "run_list_1",
+               :boom,
+               %{workflow_id: "flow_a", backend: :direct},
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_list_2", workflow_id: "flow_a", backend: :strategy},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{"workflow_id" => "flow_a", "status" => "failed", "limit" => 1},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.accepted",
+                      data: %{"count" => 1, "runs" => [run]}
+                    }},
+                   5_000
+
+    assert run["run_id"] == "run_list_1"
+    assert run["workflow_id"] == "flow_a"
+    assert run["status"] == "failed"
+  end
+
+  test "returns command runtime status for workflow.runtime.status.requested", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "subscription_count" => subscription_count,
+                          "run_tasks" => %{}
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert subscription_count >= 7
   end
 
   test "pauses and resumes live strategy runs through runic controls", context do

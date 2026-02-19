@@ -22,6 +22,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @pause_requested "workflow.run.pause.requested"
   @resume_requested "workflow.run.resume.requested"
   @cancel_requested "workflow.run.cancel.requested"
+  @get_requested "workflow.run.get.requested"
+  @list_requested "workflow.run.list.requested"
+  @runtime_status_requested "workflow.runtime.status.requested"
 
   @start_accepted "workflow.run.start.accepted"
   @start_rejected "workflow.run.start.rejected"
@@ -31,6 +34,11 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @resume_rejected "workflow.run.resume.rejected"
   @cancel_accepted "workflow.run.cancel.accepted"
   @cancel_rejected "workflow.run.cancel.rejected"
+  @get_accepted "workflow.run.get.accepted"
+  @get_rejected "workflow.run.get.rejected"
+  @list_accepted "workflow.run.list.accepted"
+  @list_rejected "workflow.run.list.rejected"
+  @runtime_status_accepted "workflow.runtime.status.accepted"
 
   @command_source "/jido_workflow/workflow/commands"
 
@@ -114,6 +122,18 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   def handle_info({:signal, %Signal{type: @cancel_requested} = signal}, state) do
     handle_cancel_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @get_requested} = signal}, state) do
+    handle_get_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @list_requested} = signal}, state) do
+    handle_list_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @runtime_status_requested} = signal}, state) do
+    handle_runtime_status_requested(signal, state)
   end
 
   def handle_info({:command_run_runtime_agent_started, run_id, runtime_agent_pid}, state) do
@@ -277,6 +297,81 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
         {:noreply, state}
     end
+  end
+
+  defp handle_get_requested(signal, state) do
+    with {:ok, run_id} <- fetch_required_run_id(signal.data),
+         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store) do
+      _ =
+        publish_command_response(
+          state.bus,
+          @get_accepted,
+          %{"run" => serialize_run(run)},
+          signal
+        )
+
+      {:noreply, state}
+    else
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @get_rejected,
+            %{
+              "run_id" => fetch(signal.data, "run_id"),
+              "reason" => format_reason(reason)
+            },
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_list_requested(signal, state) do
+    case normalize_list_opts(signal.data) do
+      {:ok, list_opts} ->
+        runs =
+          list_opts
+          |> Keyword.put(:run_store, state.run_store)
+          |> Engine.list_runs()
+          |> Enum.map(&serialize_run/1)
+
+        _ =
+          publish_command_response(
+            state.bus,
+            @list_accepted,
+            %{"runs" => runs, "count" => length(runs)},
+            signal
+          )
+
+        {:noreply, state}
+
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @list_rejected,
+            %{"reason" => format_reason(reason)},
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_runtime_status_requested(signal, state) do
+    status = status_payload(state)
+
+    _ =
+      publish_command_response(
+        state.bus,
+        @runtime_status_accepted,
+        %{"status" => to_signal_value(status)},
+        signal
+      )
+
+    {:noreply, state}
   end
 
   defp launch_run_task(request, state) do
@@ -457,6 +552,76 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp normalize_start_inputs(_data), do: :invalid
 
+  defp normalize_list_opts(data) when is_map(data) do
+    with {:ok, workflow_id} <- optional_binary_filter(data, "workflow_id"),
+         {:ok, status} <- optional_status_filter(data, "status"),
+         {:ok, limit} <- optional_positive_integer_filter(data, "limit") do
+      opts =
+        []
+        |> maybe_put_opt(:workflow_id, workflow_id)
+        |> maybe_put_opt(:status, status)
+        |> maybe_put_opt(:limit, limit)
+
+      {:ok, opts}
+    end
+  end
+
+  defp normalize_list_opts(_data), do: {:ok, []}
+
+  defp optional_binary_filter(data, key) do
+    case fetch(data, key) do
+      nil -> {:ok, nil}
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+    end
+  end
+
+  defp optional_status_filter(data, key) do
+    case fetch(data, key) do
+      nil ->
+        {:ok, nil}
+
+      status when status in [:running, :paused, :completed, :failed, :cancelled] ->
+        {:ok, status}
+
+      status when is_binary(status) ->
+        parse_status_filter(status, key)
+
+      _ ->
+        {:error, {:missing_or_invalid, String.to_atom(key)}}
+    end
+  end
+
+  defp parse_status_filter(status, key) when is_binary(status) do
+    case String.downcase(status) do
+      "running" -> {:ok, :running}
+      "paused" -> {:ok, :paused}
+      "completed" -> {:ok, :completed}
+      "failed" -> {:ok, :failed}
+      "cancelled" -> {:ok, :cancelled}
+      _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+    end
+  end
+
+  defp optional_positive_integer_filter(data, key) do
+    case fetch(data, key) do
+      nil ->
+        {:ok, nil}
+
+      value when is_integer(value) and value > 0 ->
+        {:ok, value}
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} when parsed > 0 -> {:ok, parsed}
+          _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+        end
+
+      _ ->
+        {:error, {:missing_or_invalid, String.to_atom(key)}}
+    end
+  end
+
   defp fetch_required_run_id(data) do
     case fetch(data, "run_id") do
       run_id when is_binary(run_id) and run_id != "" -> {:ok, run_id}
@@ -484,7 +649,15 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp command_types do
-    [@start_requested, @pause_requested, @resume_requested, @cancel_requested]
+    [
+      @start_requested,
+      @pause_requested,
+      @resume_requested,
+      @cancel_requested,
+      @get_requested,
+      @list_requested,
+      @runtime_status_requested
+    ]
   end
 
   defp status_payload(state) do
@@ -612,6 +785,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
+  defp maybe_put_opt(opts, _key, nil), do: opts
+  defp maybe_put_opt(opts, key, value), do: Keyword.put(opts, key, value)
+
   defp maybe_put_backend(opts, nil), do: opts
   defp maybe_put_backend(opts, backend), do: Keyword.put(opts, :backend, backend)
 
@@ -636,6 +812,46 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp format_reason(reason), do: inspect(reason)
+
+  defp serialize_run(run) do
+    %{
+      "run_id" => run.run_id,
+      "workflow_id" => run.workflow_id,
+      "status" => to_string(run.status),
+      "backend" => format_backend(run.backend),
+      "inputs" => to_signal_value(run.inputs),
+      "started_at" => format_datetime(run.started_at),
+      "finished_at" => format_datetime(run.finished_at),
+      "result" => to_signal_value(run.result),
+      "error" => to_signal_value(run.error)
+    }
+  end
+
+  defp format_backend(nil), do: nil
+  defp format_backend(backend) when is_atom(backend), do: Atom.to_string(backend)
+  defp format_backend(backend), do: to_signal_value(backend)
+
+  defp format_datetime(nil), do: nil
+  defp format_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp format_datetime(datetime), do: to_signal_value(datetime)
+
+  defp to_signal_value(nil), do: nil
+  defp to_signal_value(value) when is_binary(value), do: value
+  defp to_signal_value(value) when is_boolean(value), do: value
+  defp to_signal_value(value) when is_integer(value), do: value
+  defp to_signal_value(value) when is_float(value), do: value
+  defp to_signal_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp to_signal_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp to_signal_value(value) when is_map(value) do
+    value
+    |> Enum.into(%{}, fn {key, item} ->
+      {to_string(key), to_signal_value(item)}
+    end)
+  end
+
+  defp to_signal_value(value) when is_list(value), do: Enum.map(value, &to_signal_value/1)
+  defp to_signal_value(value), do: inspect(value)
 
   defp valid_binary?(value), do: is_binary(value) and value != ""
 
