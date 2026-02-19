@@ -553,6 +553,82 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     assert match?({:invalid_inputs, [_ | _]}, run.error)
   end
 
+  test "get_run/2 and list_runs/1 delegate to configured run store" do
+    run_store = start_test_run_store()
+
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_a", workflow_id: "flow_a", backend: :direct},
+               run_store
+             )
+
+    assert :ok =
+             RunStore.record_failed(
+               "run_a",
+               :boom,
+               %{workflow_id: "flow_a", backend: :direct},
+               run_store
+             )
+
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_b", workflow_id: "flow_b", backend: :strategy},
+               run_store
+             )
+
+    assert {:ok, run} = Engine.get_run("run_a", run_store: run_store)
+    assert run.workflow_id == "flow_a"
+    assert run.status == :failed
+
+    assert Enum.map(Engine.list_runs(run_store: run_store), & &1.run_id) == ["run_b", "run_a"]
+
+    assert Enum.map(Engine.list_runs(run_store: run_store, workflow_id: "flow_a"), & &1.run_id) ==
+             [
+               "run_a"
+             ]
+  end
+
+  test "pause/2, resume/2 and cancel/2 apply run control transitions in run store" do
+    run_store = start_test_run_store()
+
+    assert :ok = RunStore.record_started(%{run_id: "run_ctrl", workflow_id: "flow"}, run_store)
+    assert :ok = Engine.pause("run_ctrl", run_store: run_store)
+    assert {:ok, paused} = RunStore.get("run_ctrl", run_store)
+    assert paused.status == :paused
+
+    assert :ok = Engine.resume("run_ctrl", run_store: run_store)
+    assert {:ok, resumed} = RunStore.get("run_ctrl", run_store)
+    assert resumed.status == :running
+
+    assert :ok = Engine.cancel("run_ctrl", run_store: run_store)
+    assert {:ok, cancelled} = RunStore.get("run_ctrl", run_store)
+    assert cancelled.status == :cancelled
+    assert cancelled.error == :cancelled
+  end
+
+  test "pause/2, resume/2 and cancel/2 return transition errors for invalid state changes" do
+    run_store = start_test_run_store()
+
+    assert :ok =
+             RunStore.record_completed(
+               "run_done",
+               %{ok: true},
+               %{workflow_id: "flow", backend: :direct},
+               run_store
+             )
+
+    assert {:error, {:invalid_transition, %{from: :completed, to: :paused}}} =
+             Engine.pause("run_done", run_store: run_store)
+
+    assert {:error, {:invalid_transition, %{from: :completed, to: :running}}} =
+             Engine.resume("run_done", run_store: run_store)
+
+    assert {:error, {:invalid_transition, %{from: :completed, to: :cancelled}}} =
+             Engine.cancel("run_done", run_store: run_store)
+
+    assert {:error, :not_found} = Engine.pause("missing", run_store: run_store)
+  end
+
   test "execute_compiled/3 broadcasts failed signal when execution fails (direct backend)" do
     bus = start_test_bus()
 

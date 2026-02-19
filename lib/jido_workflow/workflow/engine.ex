@@ -51,6 +51,21 @@ defmodule JidoWorkflow.Workflow.Engine do
     RunStore.get(run_id, run_store(opts))
   end
 
+  @spec pause(String.t(), keyword()) :: :ok | {:error, term()}
+  def pause(run_id, opts \\ []) when is_binary(run_id) do
+    RunStore.mark_paused(run_id, %{}, run_store(opts))
+  end
+
+  @spec resume(String.t(), keyword()) :: :ok | {:error, term()}
+  def resume(run_id, opts \\ []) when is_binary(run_id) do
+    RunStore.mark_resumed(run_id, %{}, run_store(opts))
+  end
+
+  @spec cancel(String.t(), keyword()) :: :ok | {:error, term()}
+  def cancel(run_id, opts \\ []) when is_binary(run_id) do
+    RunStore.mark_cancelled(run_id, :cancelled, %{}, run_store(opts))
+  end
+
   @spec list_runs(keyword()) :: [RunStore.run()]
   def list_runs(opts \\ []) do
     store = run_store(opts)
