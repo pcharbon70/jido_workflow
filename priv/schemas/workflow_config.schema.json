@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "JidoWorkflow Global Configuration",
+  "type": "object",
+  "properties": {
+    "workflow_dir": { "type": "string", "minLength": 1 },
+    "triggers_config_path": { "type": "string", "minLength": 1 },
+    "trigger_sync_interval_ms": { "type": "integer", "minimum": 1 },
+    "trigger_backend": { "type": "string", "enum": ["direct", "strategy"] },
+    "backend": { "type": "string", "enum": ["direct", "strategy"] },
+    "workflow_backend": { "type": "string", "enum": ["direct", "strategy"] },
+    "workflow": {
+      "type": "object",
+      "properties": {
+        "workflow_dir": { "type": "string", "minLength": 1 },
+        "triggers_config_path": { "type": "string", "minLength": 1 },
+        "trigger_sync_interval_ms": { "type": "integer", "minimum": 1 },
+        "trigger_backend": { "type": "string", "enum": ["direct", "strategy"] },
+        "backend": { "type": "string", "enum": ["direct", "strategy"] },
+        "workflow_backend": { "type": "string", "enum": ["direct", "strategy"] }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

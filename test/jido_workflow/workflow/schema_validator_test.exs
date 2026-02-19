@@ -135,4 +135,50 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
              error.path == ["triggers", "0", "type"]
            end)
   end
+
+  test "validate_workflow_config/1 accepts valid top-level config" do
+    attrs = %{
+      "workflow_dir" => ".jido_code/workflows",
+      "triggers_config_path" => ".jido_code/workflows/triggers.json",
+      "trigger_sync_interval_ms" => 2500,
+      "trigger_backend" => "strategy"
+    }
+
+    assert :ok = SchemaValidator.validate_workflow_config(attrs)
+  end
+
+  test "validate_workflow_config/1 accepts valid nested workflow config" do
+    attrs = %{
+      "workflow" => %{
+        "workflow_dir" => ".jido_code/workflows",
+        "triggers_config_path" => ".jido_code/workflows/triggers.json",
+        "trigger_sync_interval_ms" => 1000,
+        "trigger_backend" => "direct"
+      }
+    }
+
+    assert :ok = SchemaValidator.validate_workflow_config(attrs)
+  end
+
+  test "validate_workflow_config/1 returns path-aware errors" do
+    attrs = %{
+      "workflow_dir" => "",
+      "trigger_sync_interval_ms" => 0,
+      "trigger_backend" => "invalid"
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["workflow_dir"]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["trigger_sync_interval_ms"]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["trigger_backend"]
+           end)
+  end
 end
