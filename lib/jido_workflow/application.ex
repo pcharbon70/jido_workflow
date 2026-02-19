@@ -41,6 +41,18 @@ defmodule JidoWorkflow.Application do
                      JidoWorkflow.Workflow.CommandRuntime
                    )
 
+  @hook_runtime Application.compile_env(
+                  :jido_workflow,
+                  :hook_runtime,
+                  JidoWorkflow.Workflow.HookRuntime
+                )
+
+  @workflow_hook_adapter Application.compile_env(
+                           :jido_workflow,
+                           :workflow_hook_adapter,
+                           JidoWorkflow.Workflow.Hooks.NoopAdapter
+                         )
+
   @trigger_sync_interval_ms Application.compile_env(
                               :jido_workflow,
                               :trigger_sync_interval_ms,
@@ -60,6 +72,7 @@ defmodule JidoWorkflow.Application do
        bus: @signal_bus,
        workflow_registry: @workflow_registry,
        run_store: @run_store},
+      {@hook_runtime, name: @hook_runtime, bus: @signal_bus, adapter: @workflow_hook_adapter},
       {JidoWorkflow.Workflow.TriggerRuntime,
        name: @trigger_runtime,
        workflow_registry: @workflow_registry,
