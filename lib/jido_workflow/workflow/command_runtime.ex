@@ -7,6 +7,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   - `workflow.run.pause.requested`
   - `workflow.run.resume.requested`
   - `workflow.run.cancel.requested`
+  - `workflow.trigger.manual.requested`
   """
 
   use GenServer
@@ -17,6 +18,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   alias JidoWorkflow.Workflow.Engine
   alias JidoWorkflow.Workflow.Registry, as: WorkflowRegistry
   alias JidoWorkflow.Workflow.RunStore
+  alias JidoWorkflow.Workflow.TriggerSupervisor
 
   @start_requested "workflow.run.start.requested"
   @pause_requested "workflow.run.pause.requested"
@@ -25,6 +27,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @get_requested "workflow.run.get.requested"
   @list_requested "workflow.run.list.requested"
   @runtime_status_requested "workflow.runtime.status.requested"
+  @manual_trigger_requested "workflow.trigger.manual.requested"
 
   @start_accepted "workflow.run.start.accepted"
   @start_rejected "workflow.run.start.rejected"
@@ -39,6 +42,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @list_accepted "workflow.run.list.accepted"
   @list_rejected "workflow.run.list.rejected"
   @runtime_status_accepted "workflow.runtime.status.accepted"
+  @manual_trigger_accepted "workflow.trigger.manual.accepted"
+  @manual_trigger_rejected "workflow.trigger.manual.rejected"
 
   @command_source "/jido_workflow/workflow/commands"
 
@@ -54,6 +59,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
           bus: atom(),
           workflow_registry: GenServer.server(),
           run_store: GenServer.server(),
+          trigger_supervisor: GenServer.server(),
+          trigger_process_registry: atom(),
           backend: Engine.backend() | nil,
           subscription_ids: [String.t()],
           run_tasks: %{String.t() => run_task()},
@@ -76,6 +83,11 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     bus = Keyword.get(opts, :bus, Broadcaster.default_bus())
     workflow_registry = Keyword.get(opts, :workflow_registry, default_workflow_registry())
     run_store = Keyword.get(opts, :run_store, default_run_store())
+    trigger_supervisor = Keyword.get(opts, :trigger_supervisor, default_trigger_supervisor())
+
+    trigger_process_registry =
+      Keyword.get(opts, :trigger_process_registry, default_trigger_process_registry())
+
     backend = normalize_backend(Keyword.get(opts, :backend))
 
     case subscribe_commands(bus) do
@@ -85,6 +97,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
            bus: bus,
            workflow_registry: workflow_registry,
            run_store: run_store,
+           trigger_supervisor: trigger_supervisor,
+           trigger_process_registry: trigger_process_registry,
            backend: backend,
            subscription_ids: subscription_ids,
            run_tasks: %{},
@@ -134,6 +148,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   def handle_info({:signal, %Signal{type: @runtime_status_requested} = signal}, state) do
     handle_runtime_status_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @manual_trigger_requested} = signal}, state) do
+    handle_manual_trigger_requested(signal, state)
   end
 
   def handle_info({:command_run_runtime_agent_started, run_id, runtime_agent_pid}, state) do
@@ -186,6 +204,43 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             @start_rejected,
             %{
               "workflow_id" => fetch(signal.data, "workflow_id"),
+              "reason" => format_reason(reason)
+            },
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_manual_trigger_requested(signal, state) do
+    with {:ok, request} <- normalize_manual_trigger_request(signal.data),
+         {:ok, trigger_id, execution} <- execute_manual_trigger_request(request, state) do
+      _ =
+        publish_command_response(
+          state.bus,
+          @manual_trigger_accepted,
+          %{
+            "trigger_id" => trigger_id,
+            "workflow_id" => execution.workflow_id,
+            "run_id" => execution.run_id,
+            "status" => to_string(execution.status)
+          }
+          |> maybe_put("command", request.command),
+          signal
+        )
+
+      {:noreply, state}
+    else
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @manual_trigger_rejected,
+            %{
+              "trigger_id" => fetch(signal.data, "trigger_id"),
+              "workflow_id" => fetch(signal.data, "workflow_id"),
+              "command" => fetch(signal.data, "command"),
               "reason" => format_reason(reason)
             },
             signal
@@ -535,6 +590,48 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
+  defp normalize_manual_trigger_request(data) when is_map(data) do
+    trigger_id = normalize_optional_binary(fetch(data, "trigger_id"))
+    command = normalize_optional_binary(fetch(data, "command"))
+    workflow_id = normalize_optional_binary(fetch(data, "workflow_id"))
+    params = normalize_manual_trigger_params(data)
+
+    cond do
+      params == :invalid ->
+        {:error, {:missing_or_invalid, :params}}
+
+      not is_map(params) ->
+        {:error, {:missing_or_invalid, :params}}
+
+      valid_binary?(trigger_id) ->
+        {:ok,
+         %{trigger_id: trigger_id, command: command, workflow_id: workflow_id, params: params}}
+
+      valid_binary?(command) ->
+        {:ok, %{trigger_id: nil, command: command, workflow_id: workflow_id, params: params}}
+
+      true ->
+        {:error, {:missing_or_invalid, :trigger_reference}}
+    end
+  end
+
+  defp normalize_manual_trigger_request(_data), do: {:error, {:missing_or_invalid, :request}}
+
+  defp normalize_manual_trigger_params(data) when is_map(data) do
+    case fetch(data, "params") do
+      nil ->
+        data
+        |> Map.drop(["trigger_id", "command", "workflow_id"])
+        |> Map.drop([:trigger_id, :command, :workflow_id])
+
+      params when is_map(params) ->
+        params
+
+      _other ->
+        :invalid
+    end
+  end
+
   defp normalize_start_inputs(data) when is_map(data) do
     case fetch(data, "inputs") do
       nil ->
@@ -656,7 +753,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       @cancel_requested,
       @get_requested,
       @list_requested,
-      @runtime_status_requested
+      @runtime_status_requested,
+      @manual_trigger_requested
     ]
   end
 
@@ -664,6 +762,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     %{
       bus: state.bus,
       backend: state.backend,
+      trigger_supervisor: state.trigger_supervisor,
+      trigger_process_registry: state.trigger_process_registry,
       subscription_count: length(state.subscription_ids),
       run_tasks:
         Enum.into(state.run_tasks, %{}, fn {run_id, run_task} ->
@@ -782,6 +882,36 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     @command_source <> "/" <> run_id <> "/" <> suffix
   end
 
+  defp execute_manual_trigger_request(request, state) do
+    opts = trigger_opts(state)
+
+    case request do
+      %{trigger_id: trigger_id} when is_binary(trigger_id) and trigger_id != "" ->
+        with {:ok, execution} <-
+               TriggerSupervisor.trigger_manual(trigger_id, request.params, opts) do
+          {:ok, trigger_id, execution}
+        end
+
+      %{command: command} when is_binary(command) and command != "" ->
+        lookup_opts =
+          [process_registry: state.trigger_process_registry]
+          |> maybe_put_opt(:workflow_id, request.workflow_id)
+
+        with {:ok, trigger_id} <- TriggerSupervisor.lookup_manual_by_command(command, lookup_opts),
+             {:ok, execution} <-
+               TriggerSupervisor.trigger_manual(trigger_id, request.params, opts) do
+          {:ok, trigger_id, execution}
+        end
+    end
+  end
+
+  defp trigger_opts(state) do
+    [
+      supervisor: state.trigger_supervisor,
+      process_registry: state.trigger_process_registry
+    ]
+  end
+
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
@@ -873,6 +1003,18 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp default_workflow_registry do
     Application.get_env(:jido_workflow, :workflow_registry, WorkflowRegistry)
+  end
+
+  defp default_trigger_supervisor do
+    Application.get_env(:jido_workflow, :trigger_supervisor, TriggerSupervisor)
+  end
+
+  defp default_trigger_process_registry do
+    Application.get_env(
+      :jido_workflow,
+      :trigger_process_registry,
+      JidoWorkflow.Workflow.TriggerProcessRegistry
+    )
   end
 
   defp default_run_store do

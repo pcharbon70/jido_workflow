@@ -154,6 +154,79 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
              )
   end
 
+  test "trigger supervisor resolves manual triggers by command and workflow", context do
+    assert {:ok, _pid} =
+             TriggerSupervisor.start_trigger(
+               %{
+                 id: "manual:shared:one",
+                 workflow_id: "flow_one",
+                 type: "manual",
+                 command: "/workflow:shared",
+                 workflow_registry: context.workflow_registry,
+                 bus: context.bus,
+                 process_registry: context.process_registry
+               },
+               supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry
+             )
+
+    assert {:ok, _pid} =
+             TriggerSupervisor.start_trigger(
+               %{
+                 id: "manual:shared:two",
+                 workflow_id: "flow_two",
+                 type: "manual",
+                 command: "/workflow:shared",
+                 workflow_registry: context.workflow_registry,
+                 bus: context.bus,
+                 process_registry: context.process_registry
+               },
+               supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry
+             )
+
+    assert {:error, {:ambiguous_manual_command, trigger_ids}} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "/workflow:shared",
+               process_registry: context.process_registry
+             )
+
+    assert trigger_ids == ["manual:shared:one", "manual:shared:two"]
+
+    assert {:ok, "manual:shared:two"} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "/workflow:shared",
+               process_registry: context.process_registry,
+               workflow_id: "flow_two"
+             )
+
+    assert {:error, :not_found} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "/workflow:missing",
+               process_registry: context.process_registry
+             )
+
+    assert {:ok, _pid} =
+             TriggerSupervisor.start_trigger(
+               %{
+                 id: "manual:default:one",
+                 workflow_id: "flow_default",
+                 type: "manual",
+                 workflow_registry: context.workflow_registry,
+                 bus: context.bus,
+                 process_registry: context.process_registry
+               },
+               supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry
+             )
+
+    assert {:ok, "manual:default:one"} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "/workflow:flow_default",
+               process_registry: context.process_registry
+             )
+  end
+
   test "sync_from_registry loads and runs global triggers from triggers.json", context do
     write_workflow_without_triggers(context.tmp_dir, "configured_flow")
 

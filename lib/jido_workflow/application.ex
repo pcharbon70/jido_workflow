@@ -109,6 +109,8 @@ defmodule JidoWorkflow.Application do
        bus: @signal_bus,
        workflow_registry: @workflow_registry,
        run_store: @run_store,
+       trigger_supervisor: @trigger_supervisor,
+       trigger_process_registry: @trigger_process_registry,
        backend: engine_backend},
       {@hook_runtime, name: @hook_runtime, bus: @signal_bus, adapter: @workflow_hook_adapter},
       {JidoWorkflow.Workflow.TriggerRuntime,
