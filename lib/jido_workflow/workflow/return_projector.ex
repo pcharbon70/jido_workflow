@@ -20,9 +20,8 @@ defmodule JidoWorkflow.Workflow.ReturnProjector do
 
   def project(productions, config) when is_list(productions) do
     config = normalize_config(config)
-    last = List.last(productions)
 
-    case resolve_base_value(last, config.value) do
+    case resolve_base_value(productions, config.value) do
       {:ok, base_value} ->
         apply_transform(base_value, config.transform)
 
@@ -40,18 +39,29 @@ defmodule JidoWorkflow.Workflow.ReturnProjector do
     }
   end
 
-  defp resolve_base_value(last_production, nil), do: {:ok, last_production}
+  defp resolve_base_value(productions, nil), do: {:ok, List.last(productions)}
 
-  defp resolve_base_value(last_production, value) when is_binary(value) do
+  defp resolve_base_value(productions, value) when is_binary(value) do
     normalized = normalize_return_value(value)
 
-    case resolve_return_reference(last_production, normalized) do
+    case resolve_return_reference_in_productions(productions, normalized) do
       {:ok, result} -> {:ok, result}
       :error -> {:error, {:return_value_not_found, value}}
     end
   end
 
-  defp resolve_base_value(_last_production, value), do: {:error, {:invalid_return_value, value}}
+  defp resolve_base_value(_productions, value), do: {:error, {:invalid_return_value, value}}
+
+  defp resolve_return_reference_in_productions(productions, value) do
+    productions
+    |> Enum.reverse()
+    |> Enum.reduce_while(:error, fn production, _acc ->
+      case resolve_return_reference(production, value) do
+        {:ok, _result} = ok -> {:halt, ok}
+        :error -> {:cont, :error}
+      end
+    end)
+  end
 
   defp resolve_return_reference(last_production, value) do
     state = ArgumentResolver.normalize_state(last_production)

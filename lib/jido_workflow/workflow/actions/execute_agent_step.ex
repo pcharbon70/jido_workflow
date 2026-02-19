@@ -6,10 +6,16 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStep do
   - target agent module
   - input bindings
   - optional pre-actions and post-actions
+  - optional callback signal publication after completion
   - execution mode (`sync` or `async`)
   """
 
+  require Logger
+
+  alias Jido.Signal
+  alias Jido.Signal.Bus
   alias JidoWorkflow.Workflow.ArgumentResolver
+  alias JidoWorkflow.Workflow.Broadcaster
 
   use Jido.Action,
     name: "workflow_execute_agent_step",
@@ -33,6 +39,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStep do
          {:ok, agent_result} <- execute_agent(step_meta, Map.merge(resolved_inputs, pre_context)),
          {:ok, final_result} <-
            run_post_actions(step_meta.post_actions, step_meta.name, state, agent_result) do
+      _ = maybe_emit_callback_signal(step_meta, final_result)
       {:ok, ArgumentResolver.put_result(state, step_meta.name, final_result)}
     end
   end
@@ -56,9 +63,11 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStep do
     mode = normalize_mode(fetch(step, "mode"))
     pre_actions = fetch(step, "pre_actions")
     post_actions = fetch(step, "post_actions")
+    callback_signal = fetch(step, "callback_signal")
     timeout_ms = fetch(step, "timeout_ms")
 
     with {:ok, timeout_ms} <- normalize_timeout(timeout_ms),
+         {:ok, callback_signal} <- normalize_callback_signal(callback_signal),
          :ok <- validate_mode(mode),
          {:ok, normalized_pre_actions} <- normalize_hook_actions(pre_actions, :pre),
          {:ok, normalized_post_actions} <- normalize_hook_actions(post_actions, :post),
@@ -70,6 +79,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStep do
          agent: agent,
          inputs: inputs,
          mode: mode,
+         callback_signal: callback_signal,
          timeout_ms: timeout_ms,
          pre_actions: normalized_pre_actions,
          post_actions: normalized_post_actions
@@ -101,6 +111,19 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStep do
   defp normalize_timeout(nil), do: {:ok, nil}
   defp normalize_timeout(timeout) when is_integer(timeout) and timeout >= 0, do: {:ok, timeout}
   defp normalize_timeout(other), do: {:error, {:invalid_timeout, other}}
+
+  defp normalize_callback_signal(nil), do: {:ok, nil}
+
+  defp normalize_callback_signal(callback_signal)
+       when is_binary(callback_signal) and callback_signal != "" do
+    {:ok, callback_signal}
+  end
+
+  defp normalize_callback_signal(callback_signal) when is_atom(callback_signal) do
+    {:ok, Atom.to_string(callback_signal)}
+  end
+
+  defp normalize_callback_signal(other), do: {:error, {:invalid_callback_signal, other}}
 
   defp normalize_hook_actions(nil, _phase), do: {:ok, []}
 
@@ -277,6 +300,50 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStep do
       {:ok, result, extra} -> {:ok, %{result: result, extra: extra}}
       {:error, reason} -> {:error, {:execution_failed, reason}}
     end
+  end
+
+  defp maybe_emit_callback_signal(%{callback_signal: nil}, _result), do: :ok
+
+  defp maybe_emit_callback_signal(%{callback_signal: callback_signal} = step_meta, result)
+       when is_binary(callback_signal) do
+    signal =
+      Signal.new!(
+        callback_signal,
+        %{
+          "step_name" => step_meta.name,
+          "agent" => to_string(step_meta.agent),
+          "mode" => step_meta.mode,
+          "result" => stringify_keys(result)
+        },
+        source: callback_source(step_meta.name)
+      )
+
+    case Bus.publish(callback_bus(), [signal]) do
+      {:ok, _published} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to publish callback signal #{inspect(callback_signal)}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "Failed to publish callback signal #{inspect(callback_signal)}: #{Exception.message(exception)}"
+      )
+
+      :ok
+  end
+
+  defp callback_bus do
+    Broadcaster.default_bus()
+  end
+
+  defp callback_source(step_name) do
+    "/jido_workflow/workflow/step/#{step_name}/callback"
   end
 
   defp resolve_module(module) when is_atom(module), do: {:ok, module}
