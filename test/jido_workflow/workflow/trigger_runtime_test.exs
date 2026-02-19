@@ -216,6 +216,43 @@ defmodule JidoWorkflow.Workflow.TriggerRuntimeTest do
     assert status.triggers_config_path == triggers_config_path
   end
 
+  test "refresh/1 respects global max_concurrent_triggers setting", context do
+    write_trigger_workflow(context.tmp_dir, "runtime_limited_flow")
+
+    triggers_config_path =
+      write_triggers_config(context.tmp_dir, %{
+        "global_settings" => %{
+          "max_concurrent_triggers" => 1
+        }
+      })
+
+    runtime_name = unique_name("trigger_runtime")
+
+    runtime =
+      start_supervised!(
+        {TriggerRuntime,
+         name: runtime_name,
+         workflow_registry: context.workflow_registry,
+         trigger_supervisor: context.trigger_supervisor,
+         process_registry: context.process_registry,
+         bus: context.bus,
+         triggers_config_path: triggers_config_path,
+         sync_on_start: false}
+      )
+
+    assert {:ok, %{triggers: trigger_summary}} = TriggerRuntime.refresh(runtime)
+    assert trigger_summary.configured == 2
+    assert trigger_summary.desired == 1
+    assert trigger_summary.limited == 1
+    assert trigger_summary.max_concurrent_triggers == 1
+    assert trigger_summary.started == 1
+    assert trigger_summary.errors == []
+
+    assert TriggerSupervisor.list_trigger_ids(process_registry: context.process_registry) == [
+             "runtime_limited_flow:signal:0"
+           ]
+  end
+
   defp write_trigger_workflow(dir, name) do
     path = Path.join(dir, "#{name}.md")
 

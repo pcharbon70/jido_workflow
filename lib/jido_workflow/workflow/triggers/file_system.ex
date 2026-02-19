@@ -24,7 +24,7 @@ defmodule JidoWorkflow.Workflow.Triggers.FileSystem do
           patterns: [String.t()],
           compiled_patterns: [Regex.t()],
           events: MapSet.t(String.t()),
-          debounce_ms: pos_integer(),
+          debounce_ms: non_neg_integer(),
           pending_events: %{optional(String.t()) => MapSet.t(String.t())},
           debounce_timers: %{optional(String.t()) => reference()},
           watcher_pid: pid(),
@@ -335,7 +335,7 @@ defmodule JidoWorkflow.Workflow.Triggers.FileSystem do
 
   defp normalize_event(_other), do: nil
 
-  defp normalize_debounce_ms(value) when is_integer(value) and value > 0, do: value
+  defp normalize_debounce_ms(value) when is_integer(value) and value >= 0, do: value
   defp normalize_debounce_ms(_value), do: @default_debounce_ms
 
   defp require_binary(value, _field) when is_binary(value) and value != "", do: :ok
