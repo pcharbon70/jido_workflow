@@ -8,6 +8,8 @@ defmodule JidoWorkflow.Workflow.Compiler do
   alias JidoWorkflow.Workflow.Actions.ExecuteAgentStep
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Definition
+  alias JidoWorkflow.Workflow.Definition.RetryPolicy, as: DefinitionRetryPolicy
+  alias JidoWorkflow.Workflow.Definition.Settings, as: DefinitionSettings
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.ValidationError
   alias Runic.Workflow
@@ -15,6 +17,20 @@ defmodule JidoWorkflow.Workflow.Compiler do
   @type compiled_bundle :: %{
           workflow: Workflow.t(),
           return: %{value: String.t() | nil, transform: String.t() | nil},
+          settings:
+            %{
+              max_concurrency: pos_integer() | nil,
+              timeout_ms: pos_integer() | nil,
+              retry_policy:
+                %{
+                  max_retries: non_neg_integer() | nil,
+                  backoff: String.t() | nil,
+                  base_delay_ms: non_neg_integer() | nil
+                }
+                | nil,
+              on_failure: String.t() | nil
+            }
+            | nil,
           metadata: %{
             name: String.t(),
             version: String.t(),
@@ -35,6 +51,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
        %{
          workflow: workflow,
          return: compile_return(definition.return),
+         settings: compile_settings(definition.settings),
          metadata: %{
            name: definition.name,
            version: definition.version,
@@ -294,6 +311,27 @@ defmodule JidoWorkflow.Workflow.Compiler do
 
   defp compile_return(%Definition.Return{value: value, transform: transform}),
     do: %{value: value, transform: transform}
+
+  defp compile_settings(nil), do: nil
+
+  defp compile_settings(%DefinitionSettings{} = settings) do
+    %{
+      max_concurrency: settings.max_concurrency,
+      timeout_ms: settings.timeout_ms,
+      retry_policy: compile_retry_policy(settings.retry_policy),
+      on_failure: settings.on_failure
+    }
+  end
+
+  defp compile_retry_policy(nil), do: nil
+
+  defp compile_retry_policy(%DefinitionRetryPolicy{} = retry_policy) do
+    %{
+      max_retries: retry_policy.max_retries,
+      backoff: retry_policy.backoff,
+      base_delay_ms: retry_policy.base_delay_ms
+    }
+  end
 
   defp step_index_map(steps) do
     steps

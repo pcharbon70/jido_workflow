@@ -19,6 +19,10 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert %Workflow{} = compiled.workflow
     assert compiled.return.value == "ai_code_review"
     assert compiled.metadata.name == "code_review_pipeline"
+    assert compiled.settings.max_concurrency == 4
+    assert compiled.settings.timeout_ms == 300_000
+    assert compiled.settings.on_failure == "compensate"
+    assert compiled.settings.retry_policy.max_retries == 3
 
     assert %ActionNode{name: "parse_file"} =
              Workflow.get_component(compiled.workflow, "parse_file")
