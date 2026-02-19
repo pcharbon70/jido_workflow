@@ -18,6 +18,7 @@ defmodule JidoWorkflow.Workflow.Engine do
   alias JidoWorkflow.Workflow.InputContract
   alias JidoWorkflow.Workflow.Registry
   alias JidoWorkflow.Workflow.ReturnProjector
+  alias JidoWorkflow.Workflow.RunStore
   alias JidoWorkflow.Workflow.RuntimeAgent
   alias Runic.Workflow
 
@@ -45,6 +46,18 @@ defmodule JidoWorkflow.Workflow.Engine do
     end
   end
 
+  @spec get_run(String.t(), keyword()) :: {:ok, RunStore.run()} | {:error, :not_found}
+  def get_run(run_id, opts \\ []) when is_binary(run_id) do
+    RunStore.get(run_id, run_store(opts))
+  end
+
+  @spec list_runs(keyword()) :: [RunStore.run()]
+  def list_runs(opts \\ []) do
+    store = run_store(opts)
+    list_opts = Keyword.drop(opts, [:run_store])
+    RunStore.list(store, list_opts)
+  end
+
   @spec execute_definition(Definition.t(), map(), keyword()) ::
           {:ok, execution_result()} | {:error, term()}
   def execute_definition(%Definition{} = definition, inputs, opts \\ []) when is_map(inputs) do
@@ -61,6 +74,7 @@ defmodule JidoWorkflow.Workflow.Engine do
       settings = compiled_settings(compiled)
       input_schema = compiled_input_schema(compiled)
       normalized_inputs = normalize_inputs(inputs)
+      run_store = run_store(opts)
 
       case InputContract.normalize_inputs(normalized_inputs, input_schema) do
         {:ok, validated_inputs} ->
@@ -71,18 +85,39 @@ defmodule JidoWorkflow.Workflow.Engine do
             run_id,
             settings,
             validated_inputs,
+            run_store,
             opts
           )
 
         {:error, validation_errors} ->
           reason = {:invalid_inputs, validation_errors}
+
+          _ =
+            maybe_record_failed_run(
+              run_store,
+              run_id,
+              workflow_id,
+              backend,
+              normalized_inputs,
+              reason
+            )
+
           _ = maybe_broadcast_failed(compiled, workflow_id, run_id, reason, opts)
           {:error, reason}
       end
     end
   end
 
-  defp execute_with_valid_inputs(compiled, backend, workflow_id, run_id, settings, inputs, opts) do
+  defp execute_with_valid_inputs(
+         compiled,
+         backend,
+         workflow_id,
+         run_id,
+         settings,
+         inputs,
+         run_store,
+         opts
+       ) do
     workflow_context = workflow_runtime_context(compiled, workflow_id, run_id, opts)
 
     state = %{
@@ -97,6 +132,7 @@ defmodule JidoWorkflow.Workflow.Engine do
       }
       |> maybe_put_setting_metadata(settings)
 
+    _ = maybe_record_started_run(run_store, run_id, workflow_id, backend, inputs)
     _ = maybe_broadcast_started(compiled, workflow_id, run_id, metadata, opts)
 
     case run_backend(backend, compiled.workflow, state, workflow_id, opts, settings) do
@@ -108,6 +144,7 @@ defmodule JidoWorkflow.Workflow.Engine do
           executed,
           productions,
           state,
+          run_store,
           opts
         )
 
@@ -119,6 +156,7 @@ defmodule JidoWorkflow.Workflow.Engine do
           {:execution_failed, reason},
           state,
           [],
+          run_store,
           opts
         )
     end
@@ -151,9 +189,28 @@ defmodule JidoWorkflow.Workflow.Engine do
     end)
   end
 
-  defp handle_projected_result(compiled, workflow_id, run_id, executed, productions, state, opts) do
+  defp handle_projected_result(
+         compiled,
+         workflow_id,
+         run_id,
+         executed,
+         productions,
+         state,
+         run_store,
+         opts
+       ) do
     case ReturnProjector.project(productions, compiled[:return]) do
       {:ok, result} ->
+        _ =
+          maybe_record_completed_run(
+            run_store,
+            run_id,
+            workflow_id,
+            fetch_backend_from_state(state),
+            workflow_inputs_from_state(state),
+            result
+          )
+
         _ = maybe_broadcast_completed(compiled, workflow_id, run_id, result, opts)
 
         {:ok,
@@ -174,12 +231,32 @@ defmodule JidoWorkflow.Workflow.Engine do
           {:return_projection_failed, reason},
           state,
           productions,
+          run_store,
           opts
         )
     end
   end
 
-  defp handle_failure(compiled, workflow_id, run_id, error, initial_state, productions, opts) do
+  defp handle_failure(
+         compiled,
+         workflow_id,
+         run_id,
+         error,
+         initial_state,
+         productions,
+         run_store,
+         opts
+       ) do
+    _ =
+      maybe_record_failed_run(
+        run_store,
+        run_id,
+        workflow_id,
+        fetch_backend_from_state(initial_state),
+        workflow_inputs_from_state(initial_state),
+        error
+      )
+
     _ =
       maybe_apply_failure_policy(compiled, workflow_id, run_id, error, initial_state, productions)
 
@@ -320,6 +397,14 @@ defmodule JidoWorkflow.Workflow.Engine do
     inputs
     |> ArgumentResolver.normalize_state()
     |> Map.get("inputs", %{})
+  end
+
+  defp run_store(opts) do
+    Keyword.get_lazy(opts, :run_store, &default_run_store/0)
+  end
+
+  defp default_run_store do
+    Application.get_env(:jido_workflow, :run_store, RunStore)
   end
 
   defp runic_opts(opts, settings) do
@@ -475,6 +560,74 @@ defmodule JidoWorkflow.Workflow.Engine do
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp maybe_record_started_run(run_store, run_id, workflow_id, backend, inputs) do
+    RunStore.record_started(
+      %{
+        run_id: run_id,
+        workflow_id: workflow_id,
+        backend: backend,
+        inputs: inputs
+      },
+      run_store
+    )
+  rescue
+    exception ->
+      Logger.warning("Failed to record started run #{run_id}: #{Exception.message(exception)}")
+      :ok
+  end
+
+  defp maybe_record_completed_run(run_store, run_id, workflow_id, backend, inputs, result) do
+    RunStore.record_completed(
+      run_id,
+      result,
+      %{
+        workflow_id: workflow_id,
+        backend: backend,
+        inputs: inputs
+      },
+      run_store
+    )
+  rescue
+    exception ->
+      Logger.warning("Failed to record completed run #{run_id}: #{Exception.message(exception)}")
+      :ok
+  end
+
+  defp maybe_record_failed_run(run_store, run_id, workflow_id, backend, inputs, error) do
+    RunStore.record_failed(
+      run_id,
+      error,
+      %{
+        workflow_id: workflow_id,
+        backend: backend,
+        inputs: inputs
+      },
+      run_store
+    )
+  rescue
+    exception ->
+      Logger.warning("Failed to record failed run #{run_id}: #{Exception.message(exception)}")
+      :ok
+  end
+
+  defp workflow_inputs_from_state(state) do
+    state
+    |> ArgumentResolver.normalize_state()
+    |> Map.get("inputs", %{})
+    |> Map.delete(@workflow_context_input_key)
+  end
+
+  defp fetch_backend_from_state(state) do
+    state
+    |> ArgumentResolver.normalize_state()
+    |> get_in(["inputs", @workflow_context_input_key, "backend"])
+    |> case do
+      "strategy" -> :strategy
+      "direct" -> :direct
+      _ -> nil
+    end
   end
 
   defp workflow_timeout(settings) do

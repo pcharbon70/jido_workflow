@@ -29,6 +29,12 @@ defmodule JidoWorkflow.Application do
                      JidoWorkflow.Workflow.TriggerRuntime
                    )
 
+  @run_store Application.compile_env(
+               :jido_workflow,
+               :run_store,
+               JidoWorkflow.Workflow.RunStore
+             )
+
   @trigger_sync_interval_ms Application.compile_env(
                               :jido_workflow,
                               :trigger_sync_interval_ms,
@@ -42,6 +48,7 @@ defmodule JidoWorkflow.Application do
       {Registry, keys: :unique, name: @trigger_process_registry},
       {JidoWorkflow.Workflow.TriggerSupervisor, name: @trigger_supervisor},
       {JidoWorkflow.Workflow.Registry, name: @workflow_registry, workflow_dir: @workflow_dir},
+      {@run_store, name: @run_store},
       {JidoWorkflow.Workflow.TriggerRuntime,
        name: @trigger_runtime,
        workflow_registry: @workflow_registry,

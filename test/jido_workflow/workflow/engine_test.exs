@@ -80,6 +80,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
   alias JidoWorkflow.Workflow.Definition.Settings
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Engine
+  alias JidoWorkflow.Workflow.RunStore
   alias JidoWorkflow.Workflow.ValidationError
 
   test "execute_compiled/3 executes workflow and projects configured return value (direct backend)" do
@@ -475,6 +476,83 @@ defmodule JidoWorkflow.Workflow.EngineTest do
              Engine.execute_compiled(compiled, %{"retry_count" => "3"}, backend: :direct)
   end
 
+  test "execute_compiled/3 records completed run lifecycle state in run store" do
+    run_store = start_test_run_store()
+
+    definition =
+      base_definition([
+        %DefinitionStep{
+          name: "parse_file",
+          type: "action",
+          module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+          inputs: %{"file_path" => "`input:file_path`"},
+          depends_on: []
+        }
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               backend: :direct,
+               run_store: run_store
+             )
+
+    assert {:ok, run} = RunStore.get(execution.run_id, run_store)
+    assert run.status == :completed
+    assert run.workflow_id == "engine_example"
+    assert run.backend == :direct
+    assert run.inputs["file_path"] == "lib/example.ex"
+    assert run.result == execution.result
+    assert %DateTime{} = run.started_at
+    assert %DateTime{} = run.finished_at
+  end
+
+  test "execute_compiled/3 records failed run state for invalid input contract failures" do
+    run_store = start_test_run_store()
+    run_id = "run_invalid_inputs"
+
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "slow_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Slow",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        inputs: [
+          %DefinitionInput{
+            name: "file_path",
+            type: "string",
+            required: true,
+            default: nil,
+            description: nil
+          }
+        ]
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error, {:invalid_inputs, _errors}} =
+             Engine.execute_compiled(compiled, %{},
+               backend: :direct,
+               run_id: run_id,
+               run_store: run_store
+             )
+
+    assert {:ok, run} = RunStore.get(run_id, run_store)
+    assert run.status == :failed
+    assert run.workflow_id == "engine_example"
+    assert run.backend == :direct
+    assert run.inputs == %{}
+    assert %DateTime{} = run.started_at
+    assert %DateTime{} = run.finished_at
+    assert match?({:invalid_inputs, [_ | _]}, run.error)
+  end
+
   test "execute_compiled/3 broadcasts failed signal when execution fails (direct backend)" do
     bus = start_test_bus()
 
@@ -738,5 +816,11 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     bus = String.to_atom("jido_workflow_engine_test_bus_#{System.unique_integer([:positive])}")
     start_supervised!({Bus, name: bus})
     bus
+  end
+
+  defp start_test_run_store do
+    name = String.to_atom("jido_workflow_run_store_test_#{System.unique_integer([:positive])}")
+    start_supervised!({RunStore, name: name})
+    name
   end
 end
