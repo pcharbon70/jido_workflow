@@ -63,6 +63,12 @@ defmodule JidoWorkflow.Application do
                               nil
                             )
 
+  @engine_backend Application.compile_env(
+                    :jido_workflow,
+                    :engine_backend,
+                    nil
+                  )
+
   @workflow_config_path Application.compile_env(
                           :jido_workflow,
                           :workflow_config_path,
@@ -85,6 +91,7 @@ defmodule JidoWorkflow.Application do
       Map.get(runtime_overrides, :trigger_sync_interval_ms, @trigger_sync_interval_ms)
 
     trigger_backend = Map.get(runtime_overrides, :trigger_backend)
+    engine_backend = Map.get(runtime_overrides, :engine_backend, @engine_backend)
 
     triggers_config_path =
       Map.get_lazy(runtime_overrides, :triggers_config_path, fn ->
@@ -101,7 +108,8 @@ defmodule JidoWorkflow.Application do
        name: @command_runtime,
        bus: @signal_bus,
        workflow_registry: @workflow_registry,
-       run_store: @run_store},
+       run_store: @run_store,
+       backend: engine_backend},
       {@hook_runtime, name: @hook_runtime, bus: @signal_bus, adapter: @workflow_hook_adapter},
       {JidoWorkflow.Workflow.TriggerRuntime,
        name: @trigger_runtime,

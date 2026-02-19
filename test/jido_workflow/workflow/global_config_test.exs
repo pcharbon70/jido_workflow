@@ -43,6 +43,7 @@ defmodule JidoWorkflow.Workflow.GlobalConfigTest do
     assert overrides.workflow_dir == Path.join(config_dir, "workflows")
     assert overrides.trigger_sync_interval_ms == 2500
     assert overrides.trigger_backend == :strategy
+    assert overrides.engine_backend == :strategy
     refute Map.has_key?(overrides, :triggers_config_path)
   end
 
@@ -67,6 +68,27 @@ defmodule JidoWorkflow.Workflow.GlobalConfigTest do
     assert overrides.workflow_dir == Path.join(config_dir, "workflows")
     assert overrides.triggers_config_path == Path.join(config_dir, "workflows/triggers.json")
     assert overrides.trigger_backend == :direct
+    assert overrides.engine_backend == :direct
+  end
+
+  test "load_file/1 supports explicit engine backend overrides", context do
+    config_dir = Path.join(context.tmp_dir, ".jido_code")
+    File.mkdir_p!(config_dir)
+    config_path = Path.join(config_dir, "config.json")
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        "workflow" => %{
+          "trigger_backend" => "direct",
+          "engine_backend" => "strategy"
+        }
+      })
+    )
+
+    assert {:ok, overrides} = GlobalConfig.load_file(config_path)
+    assert overrides.trigger_backend == :direct
+    assert overrides.engine_backend == :strategy
   end
 
   test "load_file/1 returns path-aware errors for invalid values", context do
@@ -79,7 +101,8 @@ defmodule JidoWorkflow.Workflow.GlobalConfigTest do
       Jason.encode!(%{
         "workflow_dir" => "",
         "trigger_sync_interval_ms" => 0,
-        "trigger_backend" => "invalid"
+        "trigger_backend" => "invalid",
+        "engine_backend" => "invalid"
       })
     )
 
@@ -97,6 +120,10 @@ defmodule JidoWorkflow.Workflow.GlobalConfigTest do
 
     assert Enum.any?(errors, fn error ->
              error.path == ["trigger_backend"]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["engine_backend"]
            end)
   end
 end
