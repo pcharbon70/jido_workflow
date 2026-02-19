@@ -35,13 +35,26 @@ defmodule JidoWorkflow.Workflow.EngineTestActions.Fail do
   end
 end
 
+defmodule JidoWorkflow.Workflow.EngineTestActions.Slow do
+  use Jido.Action,
+    name: "engine_slow",
+    schema: []
+
+  @impl true
+  def run(_params, _context) do
+    Process.sleep(50)
+    {:ok, %{"status" => "slow_done"}}
+  end
+end
+
 defmodule JidoWorkflow.Workflow.EngineTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Jido.Signal
   alias Jido.Signal.Bus
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
+  alias JidoWorkflow.Workflow.Definition.Settings
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Engine
 
@@ -237,7 +250,58 @@ defmodule JidoWorkflow.Workflow.EngineTest do
              )
   end
 
-  defp base_definition(steps) do
+  test "execute_compiled/3 applies compiled settings timeout for strategy backend await" do
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "slow_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Slow",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        settings: %Settings{timeout_ms: 1}
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error, {:execution_failed, reason}} =
+             Engine.execute_compiled(compiled, %{}, backend: :strategy)
+
+    assert match?({:await_completion_failed, {:timeout, _}}, reason)
+  end
+
+  test "execute_compiled/3 lets explicit opts override compiled timeout settings" do
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "slow_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Slow",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        settings: %Settings{timeout_ms: 1}
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{},
+               backend: :direct,
+               timeout: 1_000
+             )
+
+    assert execution.status == :completed
+    assert execution.workflow_id == "engine_example"
+    assert execution.result["results"]["slow_step"]["status"] == "slow_done"
+  end
+
+  defp base_definition(steps, opts \\ []) do
     %Definition{
       name: "engine_example",
       version: "1.0.0",
@@ -245,7 +309,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
       enabled: true,
       inputs: [],
       triggers: [],
-      settings: nil,
+      settings: Keyword.get(opts, :settings),
       channel: nil,
       steps: steps,
       error_handling: [],

@@ -51,16 +51,23 @@ defmodule JidoWorkflow.Workflow.Engine do
     with {:ok, backend} <- resolve_backend(opts) do
       workflow_id = workflow_id(compiled, opts)
       run_id = Keyword.get_lazy(opts, :run_id, &generate_run_id/0)
+      settings = compiled_settings(compiled)
 
       state = %{
         "inputs" => normalize_inputs(inputs),
         "results" => %{}
       }
 
-      metadata = %{"inputs" => state["inputs"], "backend" => Atom.to_string(backend)}
+      metadata =
+        %{
+          "inputs" => state["inputs"],
+          "backend" => Atom.to_string(backend)
+        }
+        |> maybe_put_setting_metadata(settings)
+
       _ = maybe_broadcast_started(workflow_id, run_id, metadata, opts)
 
-      case run_backend(backend, compiled.workflow, state, workflow_id, opts) do
+      case run_backend(backend, compiled.workflow, state, workflow_id, opts, settings) do
         {:ok, executed, productions} ->
           handle_projected_result(
             compiled,
@@ -78,8 +85,8 @@ defmodule JidoWorkflow.Workflow.Engine do
     end
   end
 
-  defp run_backend(:direct, workflow, state, _workflow_id, opts) do
-    runic_opts = runic_opts(opts)
+  defp run_backend(:direct, workflow, state, _workflow_id, opts, settings) do
+    runic_opts = runic_opts(opts, settings)
 
     try do
       executed = Workflow.react_until_satisfied(workflow, state, runic_opts)
@@ -93,11 +100,11 @@ defmodule JidoWorkflow.Workflow.Engine do
     end
   end
 
-  defp run_backend(:strategy, workflow, state, workflow_id, opts) do
+  defp run_backend(:strategy, workflow, state, workflow_id, opts, settings) do
     with_runtime_agent(opts, fn pid ->
       with :ok <- set_runtime_workflow(pid, workflow, workflow_id),
            :ok <- feed_runtime_inputs(pid, state, workflow_id),
-           {:ok, completion} <- await_runtime_completion(pid, opts),
+           {:ok, completion} <- await_runtime_completion(pid, opts, settings),
            :ok <- ensure_runtime_completed(completion),
            {:ok, executed} <- fetch_runtime_workflow(pid) do
         {:ok, executed, Workflow.raw_productions(executed)}
@@ -180,8 +187,8 @@ defmodule JidoWorkflow.Workflow.Engine do
     end
   end
 
-  defp await_runtime_completion(pid, opts) do
-    timeout = Keyword.get(opts, :await_timeout, Keyword.get(opts, :timeout, 300_000))
+  defp await_runtime_completion(pid, opts, settings) do
+    timeout = resolve_await_timeout(opts, settings)
 
     case Jido.AgentServer.await_completion(pid, timeout: timeout) do
       {:ok, completion} -> {:ok, completion}
@@ -261,12 +268,12 @@ defmodule JidoWorkflow.Workflow.Engine do
     |> Map.get("inputs", %{})
   end
 
-  defp runic_opts(opts) do
+  defp runic_opts(opts, settings) do
     async? = Keyword.get(opts, :async, false)
-    timeout = Keyword.get(opts, :timeout, :infinity)
+    timeout = Keyword.get(opts, :timeout, workflow_timeout(settings) || :infinity)
 
     max_concurrency =
-      case Keyword.get(opts, :max_concurrency) do
+      case Keyword.get(opts, :max_concurrency, workflow_max_concurrency(settings)) do
         value when is_integer(value) and value > 0 -> value
         _ -> nil
       end
@@ -295,8 +302,57 @@ defmodule JidoWorkflow.Workflow.Engine do
     [bus: Keyword.get(opts, :bus, Broadcaster.default_bus())]
   end
 
+  defp maybe_put_setting_metadata(metadata, settings) do
+    metadata
+    |> maybe_put("timeout_ms", workflow_timeout(settings))
+    |> maybe_put("max_concurrency", workflow_max_concurrency(settings))
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
   defp runtime_source(workflow_id, suffix) do
     "/jido_workflow/workflow/#{workflow_id}/#{suffix}"
+  end
+
+  defp compiled_settings(compiled) when is_map(compiled) do
+    case Map.get(compiled, :settings) || Map.get(compiled, "settings") do
+      %{} = settings -> settings
+      _ -> %{}
+    end
+  end
+
+  defp workflow_timeout(settings) do
+    case fetch_setting(settings, :timeout_ms) do
+      value when is_integer(value) and value > 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp workflow_max_concurrency(settings) do
+    case fetch_setting(settings, :max_concurrency) do
+      value when is_integer(value) and value > 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp resolve_await_timeout(opts, settings) do
+    timeout =
+      Keyword.get_lazy(opts, :await_timeout, fn ->
+        Keyword.get_lazy(opts, :timeout, fn ->
+          workflow_timeout(settings) || 300_000
+        end)
+      end)
+
+    normalize_await_timeout(timeout)
+  end
+
+  defp normalize_await_timeout(:infinity), do: :infinity
+  defp normalize_await_timeout(timeout) when is_integer(timeout) and timeout > 0, do: timeout
+  defp normalize_await_timeout(_timeout), do: 300_000
+
+  defp fetch_setting(settings, key) when is_map(settings) do
+    Map.get(settings, key) || Map.get(settings, Atom.to_string(key))
   end
 
   defp generate_run_id do
