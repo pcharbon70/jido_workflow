@@ -31,6 +31,9 @@ defmodule JidoWorkflow.Workflow.Engine do
           workflow: Workflow.t()
         }
 
+  @broadcast_event_step_started "step_started"
+  @broadcast_event_workflow_complete "workflow_complete"
+
   @spec execute(String.t(), map(), keyword()) :: {:ok, execution_result()} | {:error, term()}
   def execute(workflow_id, inputs, opts \\ []) when is_binary(workflow_id) and is_map(inputs) do
     registry = Keyword.get(opts, :registry, Registry)
@@ -67,7 +70,7 @@ defmodule JidoWorkflow.Workflow.Engine do
         }
         |> maybe_put_setting_metadata(settings)
 
-      _ = maybe_broadcast_started(workflow_id, run_id, metadata, opts)
+      _ = maybe_broadcast_started(compiled, workflow_id, run_id, metadata, opts)
 
       case run_backend(backend, compiled.workflow, state, workflow_id, opts, settings) do
         {:ok, executed, productions} ->
@@ -125,7 +128,7 @@ defmodule JidoWorkflow.Workflow.Engine do
   defp handle_projected_result(compiled, workflow_id, run_id, executed, productions, state, opts) do
     case ReturnProjector.project(productions, compiled[:return]) do
       {:ok, result} ->
-        _ = maybe_broadcast_completed(workflow_id, run_id, result, opts)
+        _ = maybe_broadcast_completed(compiled, workflow_id, run_id, result, opts)
 
         {:ok,
          %{
@@ -154,7 +157,7 @@ defmodule JidoWorkflow.Workflow.Engine do
     _ =
       maybe_apply_failure_policy(compiled, workflow_id, run_id, error, initial_state, productions)
 
-    _ = maybe_broadcast_failed(workflow_id, run_id, error, opts)
+    _ = maybe_broadcast_failed(compiled, workflow_id, run_id, error, opts)
     {:error, error}
   end
 
@@ -311,20 +314,48 @@ defmodule JidoWorkflow.Workflow.Engine do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
-  defp maybe_broadcast_started(workflow_id, run_id, metadata, opts) do
-    Broadcaster.broadcast_workflow_started(workflow_id, run_id, metadata, broadcast_opts(opts))
+  defp maybe_broadcast_started(compiled, workflow_id, run_id, metadata, opts) do
+    if broadcast_event_enabled?(compiled, @broadcast_event_step_started) do
+      Broadcaster.broadcast_workflow_started(
+        workflow_id,
+        run_id,
+        metadata,
+        broadcast_opts(compiled, opts)
+      )
+    else
+      :ok
+    end
   end
 
-  defp maybe_broadcast_completed(workflow_id, run_id, result, opts) do
-    Broadcaster.broadcast_workflow_completed(workflow_id, run_id, result, broadcast_opts(opts))
+  defp maybe_broadcast_completed(compiled, workflow_id, run_id, result, opts) do
+    if broadcast_event_enabled?(compiled, @broadcast_event_workflow_complete) do
+      Broadcaster.broadcast_workflow_completed(
+        workflow_id,
+        run_id,
+        result,
+        broadcast_opts(compiled, opts)
+      )
+    else
+      :ok
+    end
   end
 
-  defp maybe_broadcast_failed(workflow_id, run_id, reason, opts) do
-    Broadcaster.broadcast_workflow_failed(workflow_id, run_id, reason, broadcast_opts(opts))
+  defp maybe_broadcast_failed(compiled, workflow_id, run_id, reason, opts) do
+    if broadcast_event_enabled?(compiled, @broadcast_event_workflow_complete) do
+      Broadcaster.broadcast_workflow_failed(
+        workflow_id,
+        run_id,
+        reason,
+        broadcast_opts(compiled, opts)
+      )
+    else
+      :ok
+    end
   end
 
-  defp broadcast_opts(opts) do
+  defp broadcast_opts(compiled, opts) do
     [bus: Keyword.get(opts, :bus, Broadcaster.default_bus())]
+    |> maybe_put_opt(:source, channel_source(compiled_channel(compiled)))
   end
 
   defp maybe_put_setting_metadata(metadata, settings) do
@@ -351,6 +382,41 @@ defmodule JidoWorkflow.Workflow.Engine do
     case Map.get(compiled, :error_handling) || Map.get(compiled, "error_handling") do
       handlers when is_list(handlers) -> handlers
       _ -> []
+    end
+  end
+
+  defp compiled_channel(compiled) when is_map(compiled) do
+    case Map.get(compiled, :channel) || Map.get(compiled, "channel") do
+      %{} = channel -> channel
+      _ -> nil
+    end
+  end
+
+  defp broadcast_event_enabled?(compiled, event_name) do
+    case channel_broadcast_events(compiled_channel(compiled)) do
+      nil -> true
+      events -> event_name in events
+    end
+  end
+
+  defp channel_broadcast_events(nil), do: nil
+
+  defp channel_broadcast_events(channel) when is_map(channel) do
+    case Map.get(channel, :broadcast_events) || Map.get(channel, "broadcast_events") do
+      events when is_list(events) -> events
+      _ -> nil
+    end
+  end
+
+  defp channel_source(nil), do: nil
+
+  defp channel_source(channel) when is_map(channel) do
+    case Map.get(channel, :topic) || Map.get(channel, "topic") do
+      topic when is_binary(topic) and topic != "" ->
+        "/jido_workflow/workflow/" <> URI.encode_www_form(topic)
+
+      _ ->
+        nil
     end
   end
 
@@ -386,6 +452,9 @@ defmodule JidoWorkflow.Workflow.Engine do
   defp fetch_setting(settings, key) when is_map(settings) do
     Map.get(settings, key) || Map.get(settings, Atom.to_string(key))
   end
+
+  defp maybe_put_opt(opts, _key, nil), do: opts
+  defp maybe_put_opt(opts, key, value), do: Keyword.put(opts, key, value)
 
   defp maybe_apply_failure_policy(
          compiled,
