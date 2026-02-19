@@ -12,7 +12,10 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
   @default_process_registry JidoWorkflow.Workflow.TriggerProcessRegistry
 
   @type sync_summary :: %{
+          configured: non_neg_integer(),
           desired: non_neg_integer(),
+          limited: non_neg_integer(),
+          max_concurrent_triggers: pos_integer() | nil,
           started: non_neg_integer(),
           skipped: non_neg_integer(),
           stopped: non_neg_integer(),
@@ -26,8 +29,12 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
     trigger_supervisor = Keyword.get(opts, :trigger_supervisor, TriggerSupervisor)
     process_registry = process_registry(opts)
 
-    with {:ok, desired_configs} <- desired_trigger_configs(workflow_registry, opts) do
-      desired_ids = MapSet.new(desired_configs, & &1.id)
+    with {:ok, %{configs: desired_configs, global_settings: global_settings}} <-
+           desired_trigger_configs(workflow_registry, opts) do
+      {active_configs, limited, max_concurrent_triggers} =
+        apply_max_concurrent_limit(desired_configs, global_settings)
+
+      desired_ids = MapSet.new(active_configs, & &1.id)
 
       existing_ids =
         MapSet.new(TriggerSupervisor.list_trigger_ids(process_registry: process_registry))
@@ -40,7 +47,7 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
 
       start_stats =
         Enum.reduce(
-          desired_configs,
+          active_configs,
           %{started: 0, skipped: 0, unsupported: 0, errors: []},
           fn config, acc ->
             maybe_start_trigger(
@@ -55,7 +62,10 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
 
       {:ok,
        %{
-         desired: length(desired_configs),
+         configured: length(desired_configs),
+         desired: length(active_configs),
+         limited: limited,
+         max_concurrent_triggers: max_concurrent_triggers,
          started: start_stats.started,
          skipped: start_stats.skipped,
          stopped: stopped,
@@ -137,8 +147,14 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
                backend,
                process_registry
              ) do
-          {:ok, global_configs} ->
-            merge_trigger_configs(workflow_configs, global_configs)
+          {:ok, %{configs: global_configs, global_settings: global_settings}} ->
+            with {:ok, merged_configs} <- merge_trigger_configs(workflow_configs, global_configs) do
+              {:ok,
+               %{
+                 configs: apply_default_debounce_ms(merged_configs, global_settings),
+                 global_settings: global_settings
+               }}
+            end
 
           {:error, reason} ->
             {:error, reason}
@@ -159,8 +175,8 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
          backend,
          process_registry
        ) do
-    case TriggerConfig.load_file(triggers_config_path) do
-      {:ok, entries} ->
+    case TriggerConfig.load_document(triggers_config_path) do
+      {:ok, %{triggers: entries, global_settings: global_settings}} ->
         configs =
           entries
           |> Enum.reject(&(fetch(&1, "enabled") == false))
@@ -174,7 +190,7 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
             )
           end)
 
-        {:ok, configs}
+        {:ok, %{configs: configs, global_settings: normalize_global_settings(global_settings)}}
 
       {:error, errors} when is_list(errors) ->
         {:error, {:invalid_trigger_config, errors}}
@@ -205,6 +221,69 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
         {:error, {:duplicate_trigger_ids, duplicates}}
     end
   end
+
+  defp apply_default_debounce_ms(configs, global_settings)
+       when is_list(configs) and is_map(global_settings) do
+    case fetch(global_settings, "default_debounce_ms") do
+      debounce_ms when is_integer(debounce_ms) and debounce_ms >= 0 ->
+        Enum.map(configs, &apply_file_system_default_debounce(&1, debounce_ms))
+
+      _other ->
+        configs
+    end
+  end
+
+  defp apply_file_system_default_debounce(config, debounce_ms) when is_map(config) do
+    case {fetch(config, "type"), fetch(config, "debounce_ms")} do
+      {"file_system", nil} ->
+        Map.put(config, :debounce_ms, debounce_ms)
+
+      _other ->
+        config
+    end
+  end
+
+  defp apply_file_system_default_debounce(config, _debounce_ms), do: config
+
+  defp apply_max_concurrent_limit(configs, global_settings) do
+    total = length(configs)
+
+    case max_concurrent_triggers(global_settings) do
+      limit when is_integer(limit) ->
+        {Enum.take(configs, limit), max(total - limit, 0), limit}
+
+      nil ->
+        {configs, 0, nil}
+    end
+  end
+
+  defp max_concurrent_triggers(global_settings) when is_map(global_settings) do
+    case Map.fetch(global_settings, :max_concurrent_triggers) do
+      {:ok, limit} when is_integer(limit) and limit > 0 -> limit
+      _other -> nil
+    end
+  end
+
+  defp normalize_global_settings(settings) when is_map(settings) do
+    %{}
+    |> maybe_put_setting(
+      :default_debounce_ms,
+      normalize_non_neg_integer(fetch(settings, "default_debounce_ms"))
+    )
+    |> maybe_put_setting(
+      :max_concurrent_triggers,
+      normalize_positive_integer(fetch(settings, "max_concurrent_triggers"))
+    )
+  end
+
+  defp maybe_put_setting(settings, _key, nil), do: settings
+  defp maybe_put_setting(settings, key, value), do: Map.put(settings, key, value)
+
+  defp normalize_non_neg_integer(value) when is_integer(value) and value >= 0, do: value
+  defp normalize_non_neg_integer(_value), do: nil
+
+  defp normalize_positive_integer(value) when is_integer(value) and value > 0, do: value
+  defp normalize_positive_integer(_value), do: nil
 
   defp duplicate_trigger_ids(configs) do
     configs

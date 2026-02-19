@@ -250,6 +250,87 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
     assert Enum.any?(errors, &match?(%JidoWorkflow.Workflow.ValidationError{}, &1))
   end
 
+  test "sync_from_registry respects global max_concurrent_triggers setting", context do
+    write_trigger_workflow(context.tmp_dir, "limited_flow")
+
+    triggers_config_path =
+      write_triggers_config(context.tmp_dir, %{
+        "global_settings" => %{
+          "max_concurrent_triggers" => 1
+        }
+      })
+
+    assert {:ok, %{total: 1}} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, summary} =
+             TriggerManager.sync_from_registry(
+               workflow_registry: context.workflow_registry,
+               trigger_supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry,
+               bus: context.bus,
+               triggers_config_path: triggers_config_path
+             )
+
+    assert summary.configured == 2
+    assert summary.desired == 1
+    assert summary.limited == 1
+    assert summary.max_concurrent_triggers == 1
+    assert summary.started == 1
+    assert summary.errors == []
+
+    assert TriggerSupervisor.list_trigger_ids(process_registry: context.process_registry) == [
+             "limited_flow:signal:0"
+           ]
+  end
+
+  test "sync_from_registry applies global default_debounce_ms to file_system triggers", context do
+    write_workflow_without_triggers(context.tmp_dir, "debounced_flow")
+    File.mkdir_p!(Path.join(context.tmp_dir, "watched"))
+
+    triggers_config_path =
+      write_triggers_config(context.tmp_dir, %{
+        "global_settings" => %{
+          "default_debounce_ms" => 25
+        },
+        "triggers" => [
+          %{
+            "id" => "debounced:file_system:external",
+            "workflow_id" => "debounced_flow",
+            "type" => "file_system",
+            "enabled" => true,
+            "config" => %{
+              "patterns" => ["watched/**/*.tmp"],
+              "events" => ["created", "modified"],
+              "root_dir" => context.tmp_dir
+            }
+          }
+        ]
+      })
+
+    assert {:ok, %{total: 1}} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, summary} =
+             TriggerManager.sync_from_registry(
+               workflow_registry: context.workflow_registry,
+               trigger_supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry,
+               bus: context.bus,
+               triggers_config_path: triggers_config_path
+             )
+
+    assert summary.started == 1
+    assert summary.errors == []
+
+    assert {:ok, trigger_pid} =
+             TriggerSupervisor.lookup_trigger(
+               "debounced:file_system:external",
+               process_registry: context.process_registry
+             )
+
+    trigger_state = :sys.get_state(trigger_pid)
+    assert trigger_state.debounce_ms == 25
+  end
+
   defp write_trigger_workflow(dir, name) do
     path = Path.join(dir, "#{name}.md")
 
