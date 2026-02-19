@@ -75,6 +75,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
   alias Jido.Signal.Bus
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
+  alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
   alias JidoWorkflow.Workflow.Definition.Settings
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Engine
@@ -182,6 +183,88 @@ defmodule JidoWorkflow.Workflow.EngineTest do
                     }}
   end
 
+  test "execute_compiled/3 only emits workflow completion events when channel policy is workflow_complete" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "parse_file",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+            inputs: %{"file_path" => "`input:file_path`"},
+            depends_on: []
+          }
+        ],
+        channel: %DefinitionChannel{
+          topic: "workflow:engine_example",
+          broadcast_events: ["workflow_complete"]
+        }
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               bus: bus,
+               backend: :direct
+             )
+
+    assert execution.status == :completed
+
+    refute_receive {:signal, %Signal{type: "workflow.run.started"}}
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{"status" => "completed"}
+                    }}
+  end
+
+  test "execute_compiled/3 only emits started events when channel policy is step_started" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "parse_file",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+            inputs: %{"file_path" => "`input:file_path`"},
+            depends_on: []
+          }
+        ],
+        channel: %DefinitionChannel{
+          topic: "workflow:engine_example",
+          broadcast_events: ["step_started"]
+        }
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               bus: bus,
+               backend: :direct
+             )
+
+    assert execution.status == :completed
+    assert_receive {:signal, %Signal{type: "workflow.run.started", data: %{"run_id" => run_id}}}
+
+    refute_receive {:signal,
+                    %Signal{type: "workflow.run.completed", data: %{"run_id" => ^run_id}}}
+
+    refute_receive {:signal, %Signal{type: "workflow.run.failed", data: %{"run_id" => ^run_id}}}
+  end
+
   test "execute_compiled/3 broadcasts failed signal when execution fails (direct backend)" do
     bus = start_test_bus()
 
@@ -243,7 +326,9 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     assert {:error, {:return_projection_failed, :no_productions}} =
              Engine.execute_compiled(
                compiled,
-               %{"test_pid" => self(), "file_path" => "lib/example.ex"}, backend: :direct)
+               %{"test_pid" => self(), "file_path" => "lib/example.ex"},
+               backend: :direct
+             )
 
     assert_receive {:compensated, payload}
 
@@ -318,6 +403,38 @@ defmodule JidoWorkflow.Workflow.EngineTest do
                       type: "workflow.run.failed",
                       data: %{"run_id" => ^run_id, "status" => "failed"}
                     }}
+  end
+
+  test "execute_compiled/3 suppresses failed signal when channel policy excludes workflow_complete" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "fail_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Fail",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        channel: %DefinitionChannel{
+          topic: "workflow:engine_example",
+          broadcast_events: ["step_started"]
+        }
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error, {:return_projection_failed, :no_productions}} =
+             Engine.execute_compiled(compiled, %{}, bus: bus, backend: :direct)
+
+    assert_receive {:signal, %Signal{type: "workflow.run.started", data: %{"run_id" => run_id}}}
+    refute_receive {:signal, %Signal{type: "workflow.run.failed", data: %{"run_id" => ^run_id}}}
   end
 
   test "execute_compiled/3 returns invalid backend error for unsupported backend option" do
@@ -400,7 +517,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
       inputs: [],
       triggers: [],
       settings: Keyword.get(opts, :settings),
-      channel: nil,
+      channel: Keyword.get(opts, :channel),
       steps: steps,
       error_handling: Keyword.get(opts, :error_handling, []),
       return: nil

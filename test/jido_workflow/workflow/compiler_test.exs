@@ -6,6 +6,7 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
+  alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Loader
   alias Runic.Workflow
@@ -23,6 +24,15 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert compiled.settings.timeout_ms == 300_000
     assert compiled.settings.on_failure == "compensate"
     assert compiled.settings.retry_policy.max_retries == 3
+    assert compiled.channel.topic == "workflow:code_review"
+
+    assert compiled.channel.broadcast_events == [
+             "step_started",
+             "step_completed",
+             "step_failed",
+             "workflow_complete"
+           ]
+
     assert is_list(compiled.error_handling)
     assert length(compiled.error_handling) == 1
     assert hd(compiled.error_handling)["handler"] == "compensate:ai_code_review"
@@ -100,7 +110,22 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
            } = Workflow.get_component(compiled.workflow, "security_scan")
   end
 
-  defp base_definition(steps) do
+  test "compile/1 includes channel configuration for programmatic definitions" do
+    definition =
+      base_definition(
+        [step("security_scan", type: "agent", callback_signal: "security.scan.complete")],
+        channel: %DefinitionChannel{
+          topic: "workflow:security",
+          broadcast_events: ["workflow_complete"]
+        }
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+    assert compiled.channel.topic == "workflow:security"
+    assert compiled.channel.broadcast_events == ["workflow_complete"]
+  end
+
+  defp base_definition(steps, opts \\ []) do
     %Definition{
       name: "example_workflow",
       version: "1.0.0",
@@ -109,7 +134,7 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
       inputs: [],
       triggers: [],
       settings: nil,
-      channel: nil,
+      channel: Keyword.get(opts, :channel),
       steps: steps,
       error_handling: [],
       return: nil

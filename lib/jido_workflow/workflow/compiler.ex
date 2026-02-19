@@ -8,6 +8,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
   alias JidoWorkflow.Workflow.Actions.ExecuteAgentStep
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Definition
+  alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
   alias JidoWorkflow.Workflow.Definition.RetryPolicy, as: DefinitionRetryPolicy
   alias JidoWorkflow.Workflow.Definition.Settings, as: DefinitionSettings
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
@@ -18,6 +19,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
           workflow: Workflow.t(),
           return: %{value: String.t() | nil, transform: String.t() | nil},
           error_handling: [map()],
+          channel: %{topic: String.t() | nil, broadcast_events: [String.t()] | nil} | nil,
           settings:
             %{
               max_concurrency: pos_integer() | nil,
@@ -53,6 +55,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
          workflow: workflow,
          return: compile_return(definition.return),
          error_handling: compile_error_handling(definition.error_handling),
+         channel: compile_channel(definition.channel),
          settings: compile_settings(definition.settings),
          metadata: %{
            name: definition.name,
@@ -318,6 +321,15 @@ defmodule JidoWorkflow.Workflow.Compiler do
   defp compile_error_handling(nil), do: []
   defp compile_error_handling(error_handling) when is_list(error_handling), do: error_handling
   defp compile_error_handling(_other), do: []
+
+  defp compile_channel(nil), do: nil
+
+  defp compile_channel(%DefinitionChannel{} = channel) do
+    %{
+      topic: channel.topic,
+      broadcast_events: channel.broadcast_events
+    }
+  end
 
   defp compile_settings(nil), do: nil
 
