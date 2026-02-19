@@ -61,7 +61,7 @@ defmodule JidoWorkflow.Workflow.PluginExtensionsTest do
   test "register_step_type/2 extends validator and compiler for custom step types" do
     assert :ok =
              PluginExtensions.register_step_type(
-               "skill",
+               "custom_skill",
                JidoWorkflow.Workflow.PluginExtensionsTestCustomStep
              )
 
@@ -70,7 +70,7 @@ defmodule JidoWorkflow.Workflow.PluginExtensionsTest do
                "name" => "custom_step_workflow",
                "version" => "1.0.0",
                "steps" => [
-                 %{"name" => "skill_step", "type" => "skill"}
+                 %{"name" => "skill_step", "type" => "custom_skill"}
                ]
              })
 
@@ -78,7 +78,7 @@ defmodule JidoWorkflow.Workflow.PluginExtensionsTest do
       base_definition([
         %DefinitionStep{
           name: "skill_step",
-          type: "skill",
+          type: "custom_skill",
           module: nil,
           agent: nil,
           workflow: nil,
@@ -103,8 +103,16 @@ defmodule JidoWorkflow.Workflow.PluginExtensionsTest do
     assert %ActionNode{
              name: "skill_step",
              action_mod: JidoWorkflow.Workflow.PluginExtensionsTestCustomStep,
-             params: %{step: %{type: "skill"}}
+             params: %{step: %{type: "custom_skill"}}
            } = Workflow.get_component(compiled.workflow, "skill_step")
+  end
+
+  test "register_step_type/2 rejects reserved built-in step type names" do
+    assert {:error, {:reserved_step_type, "skill"}} =
+             PluginExtensions.register_step_type(
+               "skill",
+               JidoWorkflow.Workflow.PluginExtensionsTestCustomStep
+             )
   end
 
   test "register_trigger_type/2 extends validator and trigger supervisor for custom trigger types" do

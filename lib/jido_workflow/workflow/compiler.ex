@@ -6,6 +6,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
   alias Jido.Runic.ActionNode
   alias JidoWorkflow.Workflow.Actions.ExecuteActionStep
   alias JidoWorkflow.Workflow.Actions.ExecuteAgentStep
+  alias JidoWorkflow.Workflow.Actions.ExecuteSkillStep
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
@@ -265,6 +266,9 @@ defmodule JidoWorkflow.Workflow.Compiler do
       {:ok, {:builtin, :agent}} ->
         build_agent_component(step)
 
+      {:ok, {:builtin, :skill}} ->
+        build_skill_component(step)
+
       {:ok, {:builtin, :sub_workflow}} ->
         build_sub_workflow_component(step)
 
@@ -292,6 +296,12 @@ defmodule JidoWorkflow.Workflow.Compiler do
     params = %{step: serialize_sub_workflow_step(step)}
     timeout = step.timeout_ms || 0
     {:ok, ActionNode.new(ExecuteSubWorkflowStep, params, name: step.name, timeout: timeout)}
+  end
+
+  defp build_skill_component(step) do
+    params = %{step: serialize_action_step(step)}
+    timeout = step.timeout_ms || 0
+    {:ok, ActionNode.new(ExecuteSkillStep, params, name: step.name, timeout: timeout)}
   end
 
   defp build_custom_component(step, module) do

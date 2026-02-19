@@ -82,6 +82,22 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "requires module for skill steps" do
+      attrs = %{
+        "name" => "example_workflow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{"name" => "apply_skill", "type" => "skill"}
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "module"] and error.code == :required
+             end)
+    end
+
     test "rejects unsupported trigger types" do
       attrs = %{
         "name" => "example_workflow",

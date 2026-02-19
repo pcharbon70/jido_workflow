@@ -5,6 +5,7 @@ defmodule JidoWorkflow.Workflow.StepTypeRegistry do
   Built-in step types are always available:
   - `action`
   - `agent`
+  - `skill`
   - `sub_workflow`
 
   Plugins can register additional step types at runtime.
@@ -15,10 +16,11 @@ defmodule JidoWorkflow.Workflow.StepTypeRegistry do
   @builtin_types %{
     "action" => {:builtin, :action},
     "agent" => {:builtin, :agent},
+    "skill" => {:builtin, :skill},
     "sub_workflow" => {:builtin, :sub_workflow}
   }
 
-  @type builtin_type :: {:builtin, :action | :agent | :sub_workflow}
+  @type builtin_type :: {:builtin, :action | :agent | :skill | :sub_workflow}
   @type entry :: builtin_type() | module()
 
   @spec all() :: %{String.t() => entry()}
