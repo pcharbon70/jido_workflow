@@ -2,13 +2,13 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
   use ExUnit.Case, async: true
 
   alias Jido.Runic.ActionNode
+  alias JidoWorkflow.Workflow.Actions.ExecuteAgentStep
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Loader
   alias Runic.Workflow
-  alias Runic.Workflow.Step, as: RunicStep
 
   @fixture "/Users/Pascal/code/jido/jido_workflow/test/support/fixtures/workflows/code_review_pipeline.md"
 
@@ -23,7 +23,11 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert %ActionNode{name: "parse_file"} =
              Workflow.get_component(compiled.workflow, "parse_file")
 
-    assert %RunicStep{name: "ai_code_review"} =
+    assert %ActionNode{
+             name: "ai_code_review",
+             action_mod: ExecuteAgentStep,
+             params: %{step: %{agent: "code_reviewer"}}
+           } =
              Workflow.get_component(compiled.workflow, "ai_code_review")
 
     assert %ActionNode{
