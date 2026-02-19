@@ -24,6 +24,7 @@ defmodule JidoWorkflow.Workflow.TriggerRuntime do
           trigger_supervisor: GenServer.server(),
           process_registry: atom(),
           bus: atom(),
+          triggers_config_path: Path.t() | nil,
           backend: :direct | :strategy | nil,
           sync_interval_ms: pos_integer() | nil,
           timer_ref: reference() | nil,
@@ -105,6 +106,8 @@ defmodule JidoWorkflow.Workflow.TriggerRuntime do
       trigger_supervisor: Keyword.get(opts, :trigger_supervisor, default_trigger_supervisor()),
       process_registry: Keyword.get(opts, :process_registry, default_process_registry()),
       bus: Keyword.get(opts, :bus, Broadcaster.default_bus()),
+      triggers_config_path:
+        Keyword.get(opts, :triggers_config_path, default_triggers_config_path()),
       backend: normalize_backend(Keyword.get(opts, :backend)),
       sync_interval_ms:
         normalize_interval(Keyword.get(opts, :sync_interval_ms, default_sync_interval_ms())),
@@ -142,6 +145,7 @@ defmodule JidoWorkflow.Workflow.TriggerRuntime do
       trigger_supervisor: state.trigger_supervisor,
       process_registry: state.process_registry,
       bus: state.bus,
+      triggers_config_path: state.triggers_config_path,
       backend: state.backend
     )
   end
@@ -164,6 +168,7 @@ defmodule JidoWorkflow.Workflow.TriggerRuntime do
       trigger_supervisor: state.trigger_supervisor,
       process_registry: state.process_registry,
       bus: state.bus,
+      triggers_config_path: state.triggers_config_path,
       backend: state.backend,
       sync_interval_ms: state.sync_interval_ms,
       trigger_ids: TriggerSupervisor.list_trigger_ids(process_registry: state.process_registry),
@@ -214,5 +219,13 @@ defmodule JidoWorkflow.Workflow.TriggerRuntime do
 
   defp default_sync_interval_ms do
     Application.get_env(:jido_workflow, :trigger_sync_interval_ms)
+  end
+
+  defp default_triggers_config_path do
+    Application.get_env(
+      :jido_workflow,
+      :triggers_config_path,
+      ".jido_code/workflows/triggers.json"
+    )
   end
 end

@@ -59,6 +59,12 @@ defmodule JidoWorkflow.Application do
                               nil
                             )
 
+  @triggers_config_path Application.compile_env(
+                          :jido_workflow,
+                          :triggers_config_path,
+                          Path.join(@workflow_dir, "triggers.json")
+                        )
+
   @impl true
   def start(_type, _args) do
     children = [
@@ -79,6 +85,7 @@ defmodule JidoWorkflow.Application do
        trigger_supervisor: @trigger_supervisor,
        process_registry: @trigger_process_registry,
        bus: @signal_bus,
+       triggers_config_path: @triggers_config_path,
        sync_interval_ms: @trigger_sync_interval_ms}
     ]
 
