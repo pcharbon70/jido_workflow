@@ -56,6 +56,48 @@ defmodule JidoWorkflow.Workflow.Broadcaster do
     publish("workflow.run.failed", payload, opts)
   end
 
+  @spec broadcast_workflow_paused(String.t(), String.t(), map(), keyword()) ::
+          {:ok, [term()]} | {:error, term()}
+  def broadcast_workflow_paused(workflow_id, run_id, metadata \\ %{}, opts \\ []) do
+    payload = %{
+      "workflow_id" => workflow_id,
+      "run_id" => run_id,
+      "status" => "paused",
+      "metadata" => metadata,
+      "paused_at" => timestamp()
+    }
+
+    publish("workflow.run.paused", payload, opts)
+  end
+
+  @spec broadcast_workflow_resumed(String.t(), String.t(), map(), keyword()) ::
+          {:ok, [term()]} | {:error, term()}
+  def broadcast_workflow_resumed(workflow_id, run_id, metadata \\ %{}, opts \\ []) do
+    payload = %{
+      "workflow_id" => workflow_id,
+      "run_id" => run_id,
+      "status" => "running",
+      "metadata" => metadata,
+      "resumed_at" => timestamp()
+    }
+
+    publish("workflow.run.resumed", payload, opts)
+  end
+
+  @spec broadcast_workflow_cancelled(String.t(), String.t(), term(), keyword()) ::
+          {:ok, [term()]} | {:error, term()}
+  def broadcast_workflow_cancelled(workflow_id, run_id, reason, opts \\ []) do
+    payload = %{
+      "workflow_id" => workflow_id,
+      "run_id" => run_id,
+      "status" => "cancelled",
+      "reason" => format_reason(reason),
+      "cancelled_at" => timestamp()
+    }
+
+    publish("workflow.run.cancelled", payload, opts)
+  end
+
   @spec broadcast_step_started(String.t(), String.t(), map(), keyword()) ::
           {:ok, [term()]} | {:error, term()}
   def broadcast_step_started(workflow_id, run_id, step, opts \\ []) when is_map(step) do

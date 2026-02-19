@@ -78,4 +78,38 @@ defmodule JidoWorkflow.Workflow.RunStoreTest do
     assert Enum.map(RunStore.list(run_store), & &1.run_id) == ["run_4", "run_3", "run_2"]
     assert {:error, :not_found} = RunStore.get("run_1", run_store)
   end
+
+  test "supports pause/resume/cancel run control transitions", %{run_store: run_store} do
+    assert :ok = RunStore.record_started(%{run_id: "run_ctrl", workflow_id: "flow"}, run_store)
+    assert :ok = RunStore.mark_paused("run_ctrl", %{}, run_store)
+    assert {:ok, paused} = RunStore.get("run_ctrl", run_store)
+    assert paused.status == :paused
+
+    assert :ok = RunStore.mark_resumed("run_ctrl", %{}, run_store)
+    assert {:ok, resumed} = RunStore.get("run_ctrl", run_store)
+    assert resumed.status == :running
+    assert resumed.finished_at == nil
+
+    assert :ok = RunStore.mark_cancelled("run_ctrl", :user_cancelled, %{}, run_store)
+    assert {:ok, cancelled} = RunStore.get("run_ctrl", run_store)
+    assert cancelled.status == :cancelled
+    assert cancelled.error == :user_cancelled
+    assert %DateTime{} = cancelled.finished_at
+  end
+
+  test "rejects invalid pause/resume/cancel transitions", %{run_store: run_store} do
+    assert :ok =
+             RunStore.record_failed("run_failed", :boom, %{workflow_id: "flow"}, run_store)
+
+    assert {:error, {:invalid_transition, %{from: :failed, to: :paused}}} =
+             RunStore.mark_paused("run_failed", %{}, run_store)
+
+    assert {:error, {:invalid_transition, %{from: :failed, to: :running}}} =
+             RunStore.mark_resumed("run_failed", %{}, run_store)
+
+    assert {:error, {:invalid_transition, %{from: :failed, to: :cancelled}}} =
+             RunStore.mark_cancelled("run_failed", :cancelled, %{}, run_store)
+
+    assert {:error, :not_found} = RunStore.mark_paused("missing", %{}, run_store)
+  end
 end

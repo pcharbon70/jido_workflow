@@ -5,7 +5,7 @@ defmodule JidoWorkflow.Workflow.RunStore do
 
   use GenServer
 
-  @type status :: :running | :completed | :failed
+  @type status :: :running | :paused | :completed | :failed | :cancelled
 
   @type run :: %{
           run_id: String.t(),
@@ -32,6 +32,14 @@ defmodule JidoWorkflow.Workflow.RunStore do
           optional(:backend) => :direct | :strategy,
           optional(:inputs) => map(),
           optional(:finished_at) => DateTime.t()
+        }
+
+  @type control_attrs :: %{
+          optional(:workflow_id) => String.t(),
+          optional(:backend) => :direct | :strategy,
+          optional(:inputs) => map(),
+          optional(:finished_at) => DateTime.t(),
+          optional(:error) => term()
         }
 
   @default_max_runs 1_000
@@ -64,6 +72,25 @@ defmodule JidoWorkflow.Workflow.RunStore do
   @spec get(String.t(), GenServer.server()) :: {:ok, run()} | {:error, :not_found}
   def get(run_id, server \\ __MODULE__) when is_binary(run_id) do
     GenServer.call(server, {:get, run_id})
+  end
+
+  @spec mark_paused(String.t(), control_attrs(), GenServer.server()) :: :ok | {:error, term()}
+  def mark_paused(run_id, attrs \\ %{}, server \\ __MODULE__)
+      when is_binary(run_id) and is_map(attrs) do
+    GenServer.call(server, {:mark_paused, run_id, attrs})
+  end
+
+  @spec mark_resumed(String.t(), control_attrs(), GenServer.server()) :: :ok | {:error, term()}
+  def mark_resumed(run_id, attrs \\ %{}, server \\ __MODULE__)
+      when is_binary(run_id) and is_map(attrs) do
+    GenServer.call(server, {:mark_resumed, run_id, attrs})
+  end
+
+  @spec mark_cancelled(String.t(), term(), control_attrs(), GenServer.server()) ::
+          :ok | {:error, term()}
+  def mark_cancelled(run_id, reason \\ :cancelled, attrs \\ %{}, server \\ __MODULE__)
+      when is_binary(run_id) and is_map(attrs) do
+    GenServer.call(server, {:mark_cancelled, run_id, reason, attrs})
   end
 
   @spec list(GenServer.server(), keyword()) :: [run()]
@@ -130,6 +157,57 @@ defmodule JidoWorkflow.Workflow.RunStore do
       end
 
     {:reply, reply, state}
+  end
+
+  def handle_call({:mark_paused, run_id, attrs}, _from, state) do
+    with {:ok, run} <- fetch_run(state, run_id),
+         :ok <- ensure_transition(run.status, :paused) do
+      next_run =
+        run
+        |> merge_control_attrs(attrs)
+        |> Map.put(:status, :paused)
+        |> Map.put(:finished_at, nil)
+
+      {:reply, :ok, put_run(state, next_run)}
+    else
+      {:error, _reason} = error_reply ->
+        {:reply, error_reply, state}
+    end
+  end
+
+  def handle_call({:mark_resumed, run_id, attrs}, _from, state) do
+    with {:ok, run} <- fetch_run(state, run_id),
+         :ok <- ensure_transition(run.status, :running) do
+      next_run =
+        run
+        |> merge_control_attrs(attrs)
+        |> Map.put(:status, :running)
+        |> Map.put(:finished_at, nil)
+
+      {:reply, :ok, put_run(state, next_run)}
+    else
+      {:error, _reason} = error_reply ->
+        {:reply, error_reply, state}
+    end
+  end
+
+  def handle_call({:mark_cancelled, run_id, reason, attrs}, _from, state) do
+    with {:ok, run} <- fetch_run(state, run_id),
+         :ok <- ensure_transition(run.status, :cancelled) do
+      next_run =
+        run
+        |> merge_control_attrs(attrs)
+        |> Map.merge(%{
+          status: :cancelled,
+          finished_at: fetch_datetime(attrs, :finished_at, DateTime.utc_now()),
+          error: reason
+        })
+
+      {:reply, :ok, put_run(state, next_run)}
+    else
+      {:error, _reason} = error_reply ->
+        {:reply, error_reply, state}
+    end
   end
 
   def handle_call({:list, opts}, _from, state) do
@@ -259,7 +337,8 @@ defmodule JidoWorkflow.Workflow.RunStore do
 
   defp maybe_filter_status(runs, nil), do: runs
 
-  defp maybe_filter_status(runs, status) when status in [:running, :completed, :failed] do
+  defp maybe_filter_status(runs, status)
+       when status in [:running, :paused, :completed, :failed, :cancelled] do
     Enum.filter(runs, &(&1.status == status))
   end
 
@@ -267,4 +346,27 @@ defmodule JidoWorkflow.Workflow.RunStore do
 
   defp maybe_limit(runs, nil), do: runs
   defp maybe_limit(runs, limit), do: Enum.take(runs, limit)
+
+  defp fetch_run(state, run_id) do
+    case Map.get(state.runs, run_id) do
+      nil -> {:error, :not_found}
+      run -> {:ok, run}
+    end
+  end
+
+  defp ensure_transition(:running, :paused), do: :ok
+  defp ensure_transition(:paused, :running), do: :ok
+  defp ensure_transition(:running, :cancelled), do: :ok
+  defp ensure_transition(:paused, :cancelled), do: :ok
+
+  defp ensure_transition(current, target),
+    do: {:error, {:invalid_transition, %{from: current, to: target}}}
+
+  defp merge_control_attrs(run, attrs) do
+    run
+    |> maybe_put(:workflow_id, fetch(attrs, :workflow_id))
+    |> maybe_put(:backend, fetch_backend(attrs))
+    |> maybe_put_map(:inputs, fetch(attrs, :inputs))
+    |> maybe_put(:error, fetch(attrs, :error))
+  end
 end
