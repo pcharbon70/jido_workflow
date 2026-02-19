@@ -141,7 +141,8 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
       "workflow_dir" => ".jido_code/workflows",
       "triggers_config_path" => ".jido_code/workflows/triggers.json",
       "trigger_sync_interval_ms" => 2500,
-      "trigger_backend" => "strategy"
+      "trigger_backend" => "strategy",
+      "engine_backend" => "strategy"
     }
 
     assert :ok = SchemaValidator.validate_workflow_config(attrs)
@@ -153,7 +154,8 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
         "workflow_dir" => ".jido_code/workflows",
         "triggers_config_path" => ".jido_code/workflows/triggers.json",
         "trigger_sync_interval_ms" => 1000,
-        "trigger_backend" => "direct"
+        "trigger_backend" => "direct",
+        "engine_backend" => "strategy"
       }
     }
 
@@ -164,7 +166,8 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
     attrs = %{
       "workflow_dir" => "",
       "trigger_sync_interval_ms" => 0,
-      "trigger_backend" => "invalid"
+      "trigger_backend" => "invalid",
+      "engine_backend" => "invalid"
     }
 
     assert {:error, errors} = SchemaValidator.validate_workflow_config(attrs)
@@ -179,6 +182,10 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
 
     assert Enum.any?(errors, fn error ->
              error.path == ["trigger_backend"]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["engine_backend"]
            end)
   end
 end

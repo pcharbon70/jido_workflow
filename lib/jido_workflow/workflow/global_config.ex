@@ -15,7 +15,8 @@ defmodule JidoWorkflow.Workflow.GlobalConfig do
           optional(:workflow_dir) => String.t(),
           optional(:triggers_config_path) => String.t(),
           optional(:trigger_sync_interval_ms) => pos_integer(),
-          optional(:trigger_backend) => backend()
+          optional(:trigger_backend) => backend(),
+          optional(:engine_backend) => backend()
         }
 
   @type result :: {:ok, runtime_overrides()} | {:error, [ValidationError.t()]}
@@ -64,12 +65,25 @@ defmodule JidoWorkflow.Workflow.GlobalConfig do
     workflow_dir_ref = locate(config, "workflow_dir")
     triggers_path_ref = locate(config, "triggers_config_path")
     sync_interval_ref = locate(config, "trigger_sync_interval_ms")
-    backend_ref = locate(config, "trigger_backend", fallback: ["backend", "workflow_backend"])
+
+    trigger_backend_ref =
+      locate(config, "trigger_backend", fallback: ["backend", "workflow_backend"])
+
+    engine_backend_ref = locate(config, "engine_backend")
 
     {workflow_dir, errors} = normalize_optional_path(workflow_dir_ref, base_dir, [])
     {triggers_config_path, errors} = normalize_optional_path(triggers_path_ref, base_dir, errors)
     {trigger_sync_interval_ms, errors} = normalize_positive_integer(sync_interval_ref, errors)
-    {trigger_backend, errors} = normalize_backend(backend_ref, errors)
+    {trigger_backend, errors} = normalize_backend(trigger_backend_ref, errors)
+
+    {engine_backend, errors} =
+      case engine_backend_ref.value do
+        nil ->
+          {trigger_backend, errors}
+
+        _value ->
+          normalize_backend(engine_backend_ref, errors)
+      end
 
     if errors == [] do
       {:ok,
@@ -77,7 +91,8 @@ defmodule JidoWorkflow.Workflow.GlobalConfig do
        |> maybe_put(:workflow_dir, workflow_dir)
        |> maybe_put(:triggers_config_path, triggers_config_path)
        |> maybe_put(:trigger_sync_interval_ms, trigger_sync_interval_ms)
-       |> maybe_put(:trigger_backend, trigger_backend)}
+       |> maybe_put(:trigger_backend, trigger_backend)
+       |> maybe_put(:engine_backend, engine_backend)}
     else
       {:error, Enum.reverse(errors)}
     end
