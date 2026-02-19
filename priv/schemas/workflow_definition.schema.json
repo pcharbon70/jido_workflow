@@ -94,6 +94,7 @@
       "oneOf": [
         { "$ref": "#/definitions/action_step" },
         { "$ref": "#/definitions/agent_step" },
+        { "$ref": "#/definitions/skill_step" },
         { "$ref": "#/definitions/sub_workflow_step" }
       ]
     },
@@ -126,6 +127,21 @@
         "post_actions": { "type": "array", "items": { "type": "object" } }
       },
       "required": ["name", "type", "agent"]
+    },
+    "skill_step": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "const": "skill" },
+        "module": { "type": "string" },
+        "inputs": { "type": ["object", "array"] },
+        "outputs": { "type": "array", "items": { "type": "string" } },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "async": { "type": "boolean" },
+        "optional": { "type": "boolean" },
+        "max_retries": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["name", "type", "module"]
     },
     "sub_workflow_step": {
       "type": "object",
