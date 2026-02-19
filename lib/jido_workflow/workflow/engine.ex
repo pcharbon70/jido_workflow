@@ -31,6 +31,7 @@ defmodule JidoWorkflow.Workflow.Engine do
           workflow: Workflow.t()
         }
 
+  @workflow_context_input_key "__workflow"
   @broadcast_event_step_started "step_started"
   @broadcast_event_workflow_complete "workflow_complete"
 
@@ -57,15 +58,17 @@ defmodule JidoWorkflow.Workflow.Engine do
       workflow_id = workflow_id(compiled, opts)
       run_id = Keyword.get_lazy(opts, :run_id, &generate_run_id/0)
       settings = compiled_settings(compiled)
+      normalized_inputs = normalize_inputs(inputs)
+      workflow_context = workflow_runtime_context(compiled, workflow_id, run_id, opts)
 
       state = %{
-        "inputs" => normalize_inputs(inputs),
+        "inputs" => Map.put(normalized_inputs, @workflow_context_input_key, workflow_context),
         "results" => %{}
       }
 
       metadata =
         %{
-          "inputs" => state["inputs"],
+          "inputs" => Map.delete(state["inputs"], @workflow_context_input_key),
           "backend" => Atom.to_string(backend)
         }
         |> maybe_put_setting_metadata(settings)
@@ -418,6 +421,30 @@ defmodule JidoWorkflow.Workflow.Engine do
       _ ->
         nil
     end
+  end
+
+  defp channel_topic(nil), do: nil
+
+  defp channel_topic(channel) when is_map(channel) do
+    case Map.get(channel, :topic) || Map.get(channel, "topic") do
+      topic when is_binary(topic) and topic != "" -> topic
+      _ -> nil
+    end
+  end
+
+  defp workflow_runtime_context(compiled, workflow_id, run_id, opts) do
+    channel = compiled_channel(compiled)
+
+    %{
+      "workflow_id" => workflow_id,
+      "run_id" => run_id,
+      "bus" => Keyword.get(opts, :bus, Broadcaster.default_bus()),
+      "source" => channel_source(channel),
+      "channel_topic" => channel_topic(channel),
+      "broadcast_events" => channel_broadcast_events(channel)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defp workflow_timeout(settings) do

@@ -63,6 +63,81 @@ defmodule JidoWorkflow.Workflow.BroadcasterTest do
                     }}
   end
 
+  test "broadcasts workflow step started signal" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    step = %{"name" => "parse_file", "type" => "action"}
+
+    assert {:ok, [_recorded]} =
+             Broadcaster.broadcast_step_started("code_review", "run_4", step, bus: bus)
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.step.started",
+                      data: %{
+                        "workflow_id" => "code_review",
+                        "run_id" => "run_4",
+                        "step" => %{"name" => "parse_file", "type" => "action"}
+                      }
+                    }}
+  end
+
+  test "broadcasts workflow step failed signal" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    step = %{"name" => "ai_code_review", "type" => "agent"}
+
+    assert {:ok, [_recorded]} =
+             Broadcaster.broadcast_step_failed("code_review", "run_5", step, :boom, bus: bus)
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.step.failed",
+                      data: %{
+                        "workflow_id" => "code_review",
+                        "run_id" => "run_5",
+                        "reason" => "boom",
+                        "step" => %{"name" => "ai_code_review", "type" => "agent"}
+                      }
+                    }}
+  end
+
+  test "broadcasts workflow agent state signal" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.agent.state", dispatch: {:pid, target: self()})
+
+    assert {:ok, [_recorded]} =
+             Broadcaster.broadcast_agent_state(
+               "code_review",
+               "run_6",
+               "code_reviewer",
+               %{state: "running", step: %{name: "ai_code_review"}},
+               bus: bus
+             )
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.agent.state",
+                      data: %{
+                        "workflow_id" => "code_review",
+                        "run_id" => "run_6",
+                        "agent" => "code_reviewer",
+                        "state" => %{
+                          "state" => "running",
+                          "step" => %{"name" => "ai_code_review"}
+                        }
+                      }
+                    }}
+  end
+
   defp start_test_bus do
     bus = String.to_atom("jido_workflow_test_bus_#{System.unique_integer([:positive])}")
     start_supervised!({Bus, name: bus})

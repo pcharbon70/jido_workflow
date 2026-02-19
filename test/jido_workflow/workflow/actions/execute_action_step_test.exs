@@ -24,9 +24,22 @@ defmodule JidoWorkflow.TestActions.BuildSummary do
   end
 end
 
+defmodule JidoWorkflow.TestActions.FailAction do
+  use Jido.Action,
+    name: "fail_action",
+    schema: []
+
+  @impl true
+  def run(_params, _context) do
+    {:error, :boom}
+  end
+end
+
 defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStepTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Signal
+  alias Jido.Signal.Bus
   alias JidoWorkflow.Workflow.Actions.ExecuteActionStep
 
   test "executes configured action module with resolved input references" do
@@ -86,5 +99,94 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStepTest do
 
     assert {:error, {:module_not_loaded, "Nope.Module"}} =
              ExecuteActionStep.run(%{step: step}, %{})
+  end
+
+  test "broadcasts step started and completed signals when workflow context is present" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    step = %{
+      "name" => "parse_file",
+      "type" => "action",
+      "module" => "JidoWorkflow.TestActions.ParseFile",
+      "inputs" => %{"file_path" => "`input:file_path`"}
+    }
+
+    params = %{
+      "inputs" => %{
+        "file_path" => "lib/example.ex",
+        "__workflow" => workflow_context(bus, ["step_started", "step_completed"])
+      },
+      "results" => %{},
+      step: step
+    }
+
+    assert {:ok, _state} = ExecuteActionStep.run(params, %{})
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.step.started",
+                      data: %{
+                        "workflow_id" => "action_test_workflow",
+                        "run_id" => "run_action_1",
+                        "step" => %{"name" => "parse_file", "type" => "action"}
+                      }
+                    }}
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.step.completed",
+                      data: %{
+                        "workflow_id" => "action_test_workflow",
+                        "run_id" => "run_action_1",
+                        "step" => %{"name" => "parse_file", "type" => "action"},
+                        "status" => "completed"
+                      }
+                    }}
+  end
+
+  test "suppresses step failed broadcast when broadcast policy excludes step_failed" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    step = %{
+      "name" => "fail_step",
+      "type" => "action",
+      "module" => "JidoWorkflow.TestActions.FailAction",
+      "inputs" => %{}
+    }
+
+    params = %{
+      "inputs" => %{
+        "__workflow" => workflow_context(bus, ["step_started"])
+      },
+      "results" => %{},
+      step: step
+    }
+
+    assert {:error, {:action_failed, _reason}} = ExecuteActionStep.run(params, %{})
+
+    assert_receive {:signal, %Signal{type: "workflow.step.started"}}
+    refute_receive {:signal, %Signal{type: "workflow.step.failed"}}
+  end
+
+  defp workflow_context(bus, events) do
+    %{
+      "workflow_id" => "action_test_workflow",
+      "run_id" => "run_action_1",
+      "bus" => bus,
+      "source" => "/jido_workflow/workflow/workflow%3Aaction_test",
+      "broadcast_events" => events
+    }
+  end
+
+  defp start_test_bus do
+    bus = String.to_atom("jido_workflow_action_test_bus_#{System.unique_integer([:positive])}")
+    start_supervised!({Bus, name: bus})
+    bus
   end
 end
