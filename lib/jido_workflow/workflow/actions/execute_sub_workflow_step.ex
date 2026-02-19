@@ -108,8 +108,9 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep do
   defp execute_sub_workflow(step_meta, state, true, params) do
     with {:ok, resolved_inputs} <- ArgumentResolver.resolve_inputs(step_meta.inputs, state) do
       registry = fetch(params, "registry") || default_registry()
-      backend = normalize_backend(fetch(params, "backend"))
+      backend = resolve_backend(fetch(params, "backend"), workflow_context(state))
       bus = context_bus(workflow_context(state))
+      run_store = fetch(params, "run_store")
 
       engine_opts =
         [
@@ -117,6 +118,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep do
           backend: backend
         ]
         |> maybe_put_opt(:bus, bus)
+        |> maybe_put_opt(:run_store, run_store)
 
       case Engine.execute(step_meta.workflow, resolved_inputs, engine_opts) do
         {:ok, execution} ->
@@ -257,16 +259,24 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep do
     Application.get_env(:jido_workflow, :workflow_registry, Registry)
   end
 
-  defp normalize_backend(value) when value in [:direct, :strategy], do: value
+  defp resolve_backend(explicit_value, context) do
+    explicit_backend = parse_backend(explicit_value)
+    context_backend = parse_backend(fetch_context_value(context, "backend"))
 
-  defp normalize_backend(value) when is_binary(value) do
+    explicit_backend || context_backend || :direct
+  end
+
+  defp parse_backend(value) when value in [:direct, :strategy], do: value
+
+  defp parse_backend(value) when is_binary(value) do
     case String.downcase(value) do
       "strategy" -> :strategy
-      _ -> :direct
+      "direct" -> :direct
+      _ -> nil
     end
   end
 
-  defp normalize_backend(_value), do: :direct
+  defp parse_backend(_value), do: nil
 
   defp truthy?(false), do: false
   defp truthy?(nil), do: false

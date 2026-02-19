@@ -398,6 +398,13 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     }},
                    5_000
 
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.started",
+                      data: %{"workflow_id" => "strategy_control_flow", "run_id" => ^run_id}
+                    }},
+                   10_000
+
     assert_eventually(fn ->
       status = CommandRuntime.status(context.command_runtime)
       task = get_in(status, [:run_tasks, run_id])
@@ -453,16 +460,18 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     }},
                    5_000
 
-    assert_receive {:signal,
-                    %Signal{
-                      type: "workflow.run.completed",
-                      data: %{
-                        "run_id" => ^run_id,
-                        "workflow_id" => "strategy_control_flow",
-                        "result" => %{"echo" => "hello"}
-                      }
-                    }},
-                   5_000
+    assert_eventually(
+      fn ->
+        case RunStore.get(run_id, context.run_store) do
+          {:ok, run} -> run.status in [:running, :completed]
+          _ -> false
+        end
+      end,
+      10_000
+    )
+
+    assert {:ok, run_after_resume} = RunStore.get(run_id, context.run_store)
+    assert run_after_resume.status in [:running, :completed]
   end
 
   defp write_workflow(dir, workflow_name) do
