@@ -12,11 +12,21 @@ defmodule JidoWorkflow.Workflow.Compiler do
   alias JidoWorkflow.Workflow.Definition.RetryPolicy, as: DefinitionRetryPolicy
   alias JidoWorkflow.Workflow.Definition.Settings, as: DefinitionSettings
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
+  alias JidoWorkflow.Workflow.InputContract
   alias JidoWorkflow.Workflow.ValidationError
   alias Runic.Workflow
 
   @type compiled_bundle :: %{
           workflow: Workflow.t(),
+          input_schema: [
+            %{
+              name: String.t(),
+              type: String.t(),
+              required: boolean(),
+              default: term(),
+              description: String.t() | nil
+            }
+          ],
           return: %{value: String.t() | nil, transform: String.t() | nil},
           error_handling: [map()],
           channel: %{topic: String.t() | nil, broadcast_events: [String.t()] | nil} | nil,
@@ -53,6 +63,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
       {:ok,
        %{
          workflow: workflow,
+         input_schema: InputContract.compile_schema(definition.inputs),
          return: compile_return(definition.return),
          error_handling: compile_error_handling(definition.error_handling),
          channel: compile_channel(definition.channel),

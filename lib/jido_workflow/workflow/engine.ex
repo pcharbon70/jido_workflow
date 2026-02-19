@@ -15,6 +15,7 @@ defmodule JidoWorkflow.Workflow.Engine do
   alias JidoWorkflow.Workflow.Broadcaster
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
+  alias JidoWorkflow.Workflow.InputContract
   alias JidoWorkflow.Workflow.Registry
   alias JidoWorkflow.Workflow.ReturnProjector
   alias JidoWorkflow.Workflow.RuntimeAgent
@@ -58,46 +59,68 @@ defmodule JidoWorkflow.Workflow.Engine do
       workflow_id = workflow_id(compiled, opts)
       run_id = Keyword.get_lazy(opts, :run_id, &generate_run_id/0)
       settings = compiled_settings(compiled)
+      input_schema = compiled_input_schema(compiled)
       normalized_inputs = normalize_inputs(inputs)
-      workflow_context = workflow_runtime_context(compiled, workflow_id, run_id, opts)
 
-      state = %{
-        "inputs" => Map.put(normalized_inputs, @workflow_context_input_key, workflow_context),
-        "results" => %{}
-      }
-
-      metadata =
-        %{
-          "inputs" => Map.delete(state["inputs"], @workflow_context_input_key),
-          "backend" => Atom.to_string(backend)
-        }
-        |> maybe_put_setting_metadata(settings)
-
-      _ = maybe_broadcast_started(compiled, workflow_id, run_id, metadata, opts)
-
-      case run_backend(backend, compiled.workflow, state, workflow_id, opts, settings) do
-        {:ok, executed, productions} ->
-          handle_projected_result(
+      case InputContract.normalize_inputs(normalized_inputs, input_schema) do
+        {:ok, validated_inputs} ->
+          execute_with_valid_inputs(
             compiled,
+            backend,
             workflow_id,
             run_id,
-            executed,
-            productions,
-            state,
+            settings,
+            validated_inputs,
             opts
           )
 
-        {:error, reason} ->
-          handle_failure(
-            compiled,
-            workflow_id,
-            run_id,
-            {:execution_failed, reason},
-            state,
-            [],
-            opts
-          )
+        {:error, validation_errors} ->
+          reason = {:invalid_inputs, validation_errors}
+          _ = maybe_broadcast_failed(compiled, workflow_id, run_id, reason, opts)
+          {:error, reason}
       end
+    end
+  end
+
+  defp execute_with_valid_inputs(compiled, backend, workflow_id, run_id, settings, inputs, opts) do
+    workflow_context = workflow_runtime_context(compiled, workflow_id, run_id, opts)
+
+    state = %{
+      "inputs" => Map.put(inputs, @workflow_context_input_key, workflow_context),
+      "results" => %{}
+    }
+
+    metadata =
+      %{
+        "inputs" => Map.delete(state["inputs"], @workflow_context_input_key),
+        "backend" => Atom.to_string(backend)
+      }
+      |> maybe_put_setting_metadata(settings)
+
+    _ = maybe_broadcast_started(compiled, workflow_id, run_id, metadata, opts)
+
+    case run_backend(backend, compiled.workflow, state, workflow_id, opts, settings) do
+      {:ok, executed, productions} ->
+        handle_projected_result(
+          compiled,
+          workflow_id,
+          run_id,
+          executed,
+          productions,
+          state,
+          opts
+        )
+
+      {:error, reason} ->
+        handle_failure(
+          compiled,
+          workflow_id,
+          run_id,
+          {:execution_failed, reason},
+          state,
+          [],
+          opts
+        )
     end
   end
 
@@ -378,6 +401,13 @@ defmodule JidoWorkflow.Workflow.Engine do
     case Map.get(compiled, :settings) || Map.get(compiled, "settings") do
       %{} = settings -> settings
       _ -> %{}
+    end
+  end
+
+  defp compiled_input_schema(compiled) when is_map(compiled) do
+    case Map.get(compiled, :input_schema) || Map.get(compiled, "input_schema") do
+      schema when is_list(schema) -> schema
+      _ -> []
     end
   end
 
