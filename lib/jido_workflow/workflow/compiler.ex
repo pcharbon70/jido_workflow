@@ -12,6 +12,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
   alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
   alias JidoWorkflow.Workflow.Definition.RetryPolicy, as: DefinitionRetryPolicy
   alias JidoWorkflow.Workflow.Definition.Settings, as: DefinitionSettings
+  alias JidoWorkflow.Workflow.Definition.Signals, as: DefinitionSignals
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.InputContract
   alias JidoWorkflow.Workflow.StepTypeRegistry
@@ -30,7 +31,9 @@ defmodule JidoWorkflow.Workflow.Compiler do
             }
           ],
           return: %{value: String.t() | nil, transform: String.t() | nil},
+          signals: %{topic: String.t() | nil, publish_events: [String.t()] | nil} | nil,
           error_handling: [map()],
+          # Backward-compatible alias for existing engine/tests.
           channel: %{topic: String.t() | nil, broadcast_events: [String.t()] | nil} | nil,
           settings:
             %{
@@ -57,6 +60,8 @@ defmodule JidoWorkflow.Workflow.Compiler do
   @spec compile(Definition.t()) :: {:ok, compiled_bundle()} | {:error, [ValidationError.t()]}
   def compile(%Definition{} = definition) do
     steps = definition.steps || []
+    signals = definition.signals || channel_to_signals(definition.channel)
+    compiled_signals = compile_signals(signals)
 
     with :ok <- ensure_unique_step_names(steps),
          :ok <- ensure_dependencies_exist(steps),
@@ -67,8 +72,9 @@ defmodule JidoWorkflow.Workflow.Compiler do
          workflow: workflow,
          input_schema: InputContract.compile_schema(definition.inputs),
          return: compile_return(definition.return),
+         signals: compiled_signals,
          error_handling: compile_error_handling(definition.error_handling),
-         channel: compile_channel(definition.channel),
+         channel: compile_channel(compiled_signals),
          settings: compile_settings(definition.settings),
          metadata: %{
            name: definition.name,
@@ -373,12 +379,37 @@ defmodule JidoWorkflow.Workflow.Compiler do
   defp compile_error_handling(error_handling) when is_list(error_handling), do: error_handling
   defp compile_error_handling(_other), do: []
 
-  defp compile_channel(nil), do: nil
+  defp compile_signals(nil), do: nil
 
-  defp compile_channel(%DefinitionChannel{} = channel) do
+  defp compile_signals(%DefinitionSignals{} = signals) do
+    %{
+      topic: signals.topic,
+      publish_events: signals.publish_events
+    }
+  end
+
+  defp compile_signals(%DefinitionChannel{} = channel) do
     %{
       topic: channel.topic,
-      broadcast_events: channel.broadcast_events
+      publish_events: channel.broadcast_events
+    }
+  end
+
+  defp compile_channel(nil), do: nil
+
+  defp compile_channel(%{topic: topic, publish_events: publish_events}) do
+    %{
+      topic: topic,
+      broadcast_events: publish_events
+    }
+  end
+
+  defp channel_to_signals(nil), do: nil
+
+  defp channel_to_signals(%DefinitionChannel{} = channel) do
+    %DefinitionSignals{
+      topic: channel.topic,
+      publish_events: channel.broadcast_events
     }
   end
 

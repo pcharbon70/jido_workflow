@@ -55,6 +55,26 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
     assert :ok = SchemaValidator.validate_workflow(attrs)
   end
 
+  test "validate_workflow/1 accepts signal publication policy fields" do
+    attrs = %{
+      "name" => "schema_signals_workflow",
+      "version" => "1.0.0",
+      "signals" => %{
+        "topic" => "workflow:schema_signals",
+        "publish_events" => ["step_started", "workflow_complete"]
+      },
+      "steps" => [
+        %{
+          "name" => "parse_file",
+          "type" => "action",
+          "module" => "JidoWorkflow.TestActions.ParseFile"
+        }
+      ]
+    }
+
+    assert :ok = SchemaValidator.validate_workflow(attrs)
+  end
+
   test "validate_workflow/1 returns path-aware schema errors" do
     attrs = %{
       "name" => 123,
