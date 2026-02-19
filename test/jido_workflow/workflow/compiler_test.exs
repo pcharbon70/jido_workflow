@@ -23,6 +23,10 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert compiled.settings.timeout_ms == 300_000
     assert compiled.settings.on_failure == "compensate"
     assert compiled.settings.retry_policy.max_retries == 3
+    assert is_list(compiled.error_handling)
+    assert length(compiled.error_handling) == 1
+    assert hd(compiled.error_handling)["handler"] == "compensate:ai_code_review"
+    assert hd(compiled.error_handling)["action"] == "JidoCode.Actions.RevertContext"
 
     assert %ActionNode{name: "parse_file"} =
              Workflow.get_component(compiled.workflow, "parse_file")
