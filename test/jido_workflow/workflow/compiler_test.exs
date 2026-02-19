@@ -85,6 +85,21 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert Enum.any?(errors, &(&1.code == :dependency_cycle))
   end
 
+  test "compile/1 preserves callback_signal for agent steps" do
+    definition =
+      base_definition([
+        step("security_scan", type: "agent", callback_signal: "security.scan.complete")
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert %ActionNode{
+             name: "security_scan",
+             action_mod: ExecuteAgentStep,
+             params: %{step: %{callback_signal: "security.scan.complete"}}
+           } = Workflow.get_component(compiled.workflow, "security_scan")
+  end
+
   defp base_definition(steps) do
     %Definition{
       name: "example_workflow",
@@ -108,6 +123,7 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
       module: Keyword.get(opts, :module),
       agent: Keyword.get(opts, :agent, "code_reviewer"),
       workflow: Keyword.get(opts, :workflow),
+      callback_signal: Keyword.get(opts, :callback_signal),
       inputs: Keyword.get(opts, :inputs),
       outputs: Keyword.get(opts, :outputs),
       depends_on: Keyword.get(opts, :depends_on, []),

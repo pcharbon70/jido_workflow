@@ -216,6 +216,10 @@ defmodule JidoWorkflow.Workflow.Validator do
     {module, errors} = optional_string(step, :module, path ++ ["module"], errors)
     {agent, errors} = optional_string(step, :agent, path ++ ["agent"], errors)
     {workflow, errors} = optional_string(step, :workflow, path ++ ["workflow"], errors)
+
+    {callback_signal, errors} =
+      optional_string(step, :callback_signal, path ++ ["callback_signal"], errors)
+
     {outputs, errors} = optional_string_list(step, :outputs, path ++ ["outputs"], errors)
     {depends_on, errors} = optional_string_list(step, :depends_on, path ++ ["depends_on"], errors)
     {async?, errors} = optional_boolean(step, :async, path ++ ["async"], nil, errors)
@@ -243,6 +247,7 @@ defmodule JidoWorkflow.Workflow.Validator do
       module: module,
       agent: agent,
       workflow: workflow,
+      callback_signal: callback_signal,
       inputs: inputs,
       outputs: outputs,
       depends_on: depends_on,

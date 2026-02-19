@@ -73,7 +73,10 @@ end
 defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Signal
+  alias Jido.Signal.Bus
   alias JidoWorkflow.Workflow.Actions.ExecuteAgentStep
+  alias JidoWorkflow.Workflow.Broadcaster
 
   test "executes pre-actions, agent, and post-actions for sync mode" do
     step = %{
@@ -142,6 +145,52 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTest do
     }
 
     assert {:error, {:agent_timeout, _, 10}} = ExecuteAgentStep.run(%{step: step}, %{})
+  end
+
+  test "publishes callback signal when callback_signal is configured" do
+    callback_signal = "workflow.agent.callback.#{System.unique_integer([:positive])}"
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(Broadcaster.default_bus(), callback_signal,
+               dispatch: {:pid, target: self()}
+             )
+
+    step = %{
+      "name" => "security_scan",
+      "agent" => "JidoWorkflow.Workflow.Actions.ExecuteAgentStepTestActions.AsyncReviewer",
+      "mode" => "async",
+      "callback_signal" => callback_signal,
+      "inputs" => %{"code" => "`input:file_path`"}
+    }
+
+    params = %{step: step, file_path: "lib/example.ex"}
+
+    assert {:ok, _state} = ExecuteAgentStep.run(params, %{})
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: ^callback_signal,
+                      data: %{
+                        "step_name" => "security_scan",
+                        "agent" =>
+                          "JidoWorkflow.Workflow.Actions.ExecuteAgentStepTestActions.AsyncReviewer",
+                        "mode" => "async",
+                        "result" => %{"summary" => "async:lib/example.ex"}
+                      }
+                    }}
+  end
+
+  test "returns error when callback_signal is invalid" do
+    step = %{
+      "name" => "security_scan",
+      "agent" => "JidoWorkflow.Workflow.Actions.ExecuteAgentStepTestActions.AsyncReviewer",
+      "mode" => "async",
+      "callback_signal" => 123,
+      "inputs" => %{"code" => "`input:file_path`"}
+    }
+
+    assert {:error, {:invalid_callback_signal, 123}} =
+             ExecuteAgentStep.run(%{step: step, file_path: "lib/example.ex"}, %{})
   end
 
   test "returns mapped error when agent module is not available" do

@@ -37,6 +37,7 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
             "name" => "ai_code_review",
             "type" => "agent",
             "agent" => "code_reviewer",
+            "callback_signal" => "security.scan.complete",
             "depends_on" => ["parse_file"]
           }
         ],
@@ -50,6 +51,7 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
       assert length(definition.triggers) == 1
       assert length(definition.steps) == 2
       assert definition.settings.max_concurrency == 4
+      assert Enum.at(definition.steps, 1).callback_signal == "security.scan.complete"
     end
 
     test "returns path-aware errors for invalid name and version" do
@@ -94,6 +96,27 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
 
       assert Enum.any?(errors, fn error ->
                error.path == ["triggers", "0", "type"] and error.code == :invalid_value
+             end)
+    end
+
+    test "validates callback_signal type for steps" do
+      attrs = %{
+        "name" => "example_workflow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "ai_code_review",
+            "type" => "agent",
+            "agent" => "code_reviewer",
+            "callback_signal" => 123
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "callback_signal"] and error.code == :invalid_type
              end)
     end
   end

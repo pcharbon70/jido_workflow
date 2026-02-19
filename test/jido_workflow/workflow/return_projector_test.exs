@@ -40,6 +40,22 @@ defmodule JidoWorkflow.Workflow.ReturnProjectorTest do
     assert {:ok, 42} = ReturnProjector.project(productions, config)
   end
 
+  test "returns configured step result when last production does not include the step" do
+    productions = [
+      %{
+        "inputs" => %{},
+        "results" => %{
+          "build_summary" => %{"summary" => "ok"}
+        }
+      },
+      %{"metadata" => %{"status" => "done"}}
+    ]
+
+    config = %{value: "build_summary", transform: nil}
+
+    assert {:ok, %{"summary" => "ok"}} = ReturnProjector.project(productions, config)
+  end
+
   test "applies transform function source" do
     productions = [%{"value" => 21}]
 

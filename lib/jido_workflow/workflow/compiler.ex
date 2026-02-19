@@ -280,6 +280,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
       :module,
       :agent,
       :workflow,
+      :callback_signal,
       :inputs,
       :outputs,
       :depends_on,
