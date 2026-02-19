@@ -265,6 +265,98 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     refute_receive {:signal, %Signal{type: "workflow.run.failed", data: %{"run_id" => ^run_id}}}
   end
 
+  test "execute_compiled/3 emits step lifecycle signals with channel source when enabled" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "parse_file",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+            inputs: %{"file_path" => "`input:file_path`"},
+            depends_on: []
+          }
+        ],
+        channel: %DefinitionChannel{
+          topic: "workflow:engine_example",
+          broadcast_events: ["step_started", "step_completed"]
+        }
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               bus: bus,
+               backend: :direct
+             )
+
+    assert execution.status == :completed
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.step.started",
+                      source: "/jido_workflow/workflow/workflow%3Aengine_example",
+                      data: %{
+                        "run_id" => run_id,
+                        "step" => %{"name" => "parse_file", "type" => "action"}
+                      }
+                    }}
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.step.completed",
+                      source: "/jido_workflow/workflow/workflow%3Aengine_example",
+                      data: %{
+                        "run_id" => ^run_id,
+                        "status" => "completed",
+                        "step" => %{"name" => "parse_file", "type" => "action"}
+                      }
+                    }}
+  end
+
+  test "execute_compiled/3 suppresses step lifecycle signals when policy excludes them" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "parse_file",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+            inputs: %{"file_path" => "`input:file_path`"},
+            depends_on: []
+          }
+        ],
+        channel: %DefinitionChannel{
+          topic: "workflow:engine_example",
+          broadcast_events: ["workflow_complete"]
+        }
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               bus: bus,
+               backend: :direct
+             )
+
+    assert execution.status == :completed
+    refute_receive {:signal, %Signal{type: "workflow.step.started"}}
+    refute_receive {:signal, %Signal{type: "workflow.step.completed"}}
+    refute_receive {:signal, %Signal{type: "workflow.step.failed"}}
+  end
+
   test "execute_compiled/3 broadcasts failed signal when execution fails (direct backend)" do
     bus = start_test_bus()
 

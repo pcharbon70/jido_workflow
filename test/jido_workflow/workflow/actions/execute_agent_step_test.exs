@@ -56,6 +56,17 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTestActions.SlowReviewer
   end
 end
 
+defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTestActions.FailingReviewer do
+  use Jido.Action,
+    name: "failing_reviewer",
+    schema: []
+
+  @impl true
+  def run(_params, _context) do
+    {:error, :boom}
+  end
+end
+
 defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTestActions.FormatReviewOutput do
   use Jido.Action,
     name: "format_review_output",
@@ -76,7 +87,6 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTest do
   alias Jido.Signal
   alias Jido.Signal.Bus
   alias JidoWorkflow.Workflow.Actions.ExecuteAgentStep
-  alias JidoWorkflow.Workflow.Broadcaster
 
   test "executes pre-actions, agent, and post-actions for sync mode" do
     step = %{
@@ -149,11 +159,10 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTest do
 
   test "publishes callback signal when callback_signal is configured" do
     callback_signal = "workflow.agent.callback.#{System.unique_integer([:positive])}"
+    bus = start_test_bus()
 
     assert {:ok, _sub_id} =
-             Bus.subscribe(Broadcaster.default_bus(), callback_signal,
-               dispatch: {:pid, target: self()}
-             )
+             Bus.subscribe(bus, callback_signal, dispatch: {:pid, target: self()})
 
     step = %{
       "name" => "security_scan",
@@ -163,7 +172,15 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTest do
       "inputs" => %{"code" => "`input:file_path`"}
     }
 
-    params = %{step: step, file_path: "lib/example.ex"}
+    params = %{
+      "inputs" => %{
+        "file_path" => "lib/example.ex",
+        "__workflow" =>
+          workflow_context(bus, ["step_started", "step_completed", "step_failed", "agent_state"])
+      },
+      "results" => %{},
+      step: step
+    }
 
     assert {:ok, _state} = ExecuteAgentStep.run(params, %{})
 
@@ -203,5 +220,93 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTest do
 
     assert {:error, {:agent_not_loaded, "Nope.MissingAgent"}} =
              ExecuteAgentStep.run(%{step: step}, %{})
+  end
+
+  test "broadcasts step and agent state signals when workflow context is present" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.agent.state", dispatch: {:pid, target: self()})
+
+    step = %{
+      "name" => "security_scan",
+      "type" => "agent",
+      "agent" => "JidoWorkflow.Workflow.Actions.ExecuteAgentStepTestActions.AsyncReviewer",
+      "mode" => "async",
+      "inputs" => %{"code" => "`input:file_path`"}
+    }
+
+    params = %{
+      "inputs" => %{
+        "file_path" => "lib/example.ex",
+        "__workflow" =>
+          workflow_context(bus, ["step_started", "step_completed", "step_failed", "agent_state"])
+      },
+      "results" => %{},
+      step: step
+    }
+
+    assert {:ok, _state} = ExecuteAgentStep.run(params, %{})
+
+    assert_receive {:signal, %Signal{type: "workflow.step.started"}}
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.agent.state",
+                      data: %{"state" => %{"state" => "running"}}
+                    }}
+
+    assert_receive {:signal, %Signal{type: "workflow.step.completed"}}
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.agent.state",
+                      data: %{"state" => %{"state" => "completed"}}
+                    }}
+  end
+
+  test "suppresses agent state signal when policy excludes agent_state" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.agent.state", dispatch: {:pid, target: self()})
+
+    step = %{
+      "name" => "security_scan",
+      "type" => "agent",
+      "agent" => "JidoWorkflow.Workflow.Actions.ExecuteAgentStepTestActions.FailingReviewer",
+      "mode" => "sync",
+      "inputs" => %{}
+    }
+
+    params = %{
+      "inputs" => %{
+        "__workflow" => workflow_context(bus, ["step_started", "step_failed"])
+      },
+      "results" => %{},
+      step: step
+    }
+
+    assert {:error, {:agent_failed, _, _}} = ExecuteAgentStep.run(params, %{})
+    refute_receive {:signal, %Signal{type: "workflow.agent.state"}}
+  end
+
+  defp workflow_context(bus, events) do
+    %{
+      "workflow_id" => "agent_test_workflow",
+      "run_id" => "run_agent_1",
+      "bus" => bus,
+      "source" => "/jido_workflow/workflow/workflow%3Aagent_test",
+      "broadcast_events" => events
+    }
+  end
+
+  defp start_test_bus do
+    bus = String.to_atom("jido_workflow_agent_test_bus_#{System.unique_integer([:positive])}")
+    start_supervised!({Bus, name: bus})
+    bus
   end
 end
