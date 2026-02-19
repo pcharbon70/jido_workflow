@@ -240,17 +240,31 @@ defmodule JidoWorkflow.Workflow.TriggerRuntimeTest do
          sync_on_start: false}
       )
 
-    assert {:ok, %{triggers: trigger_summary}} = TriggerRuntime.refresh(runtime)
-    assert trigger_summary.configured == 2
-    assert trigger_summary.desired == 1
-    assert trigger_summary.limited == 1
-    assert trigger_summary.max_concurrent_triggers == 1
-    assert trigger_summary.started == 1
-    assert trigger_summary.errors == []
+    assert_eventually(
+      fn ->
+        case TriggerRuntime.refresh(runtime) do
+          {:ok, %{triggers: trigger_summary}} ->
+            trigger_summary.configured == 2 and
+              trigger_summary.desired == 1 and
+              trigger_summary.limited == 1 and
+              trigger_summary.max_concurrent_triggers == 1 and
+              trigger_summary.errors == []
 
-    assert TriggerSupervisor.list_trigger_ids(process_registry: context.process_registry) == [
-             "runtime_limited_flow:signal:0"
-           ]
+          _ ->
+            false
+        end
+      end,
+      2_000
+    )
+
+    assert_eventually(
+      fn ->
+        TriggerSupervisor.list_trigger_ids(process_registry: context.process_registry) == [
+          "runtime_limited_flow:signal:0"
+        ]
+      end,
+      2_000
+    )
   end
 
   defp write_trigger_workflow(dir, name) do

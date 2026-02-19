@@ -16,6 +16,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStepTest do
 
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Registry
+  alias JidoWorkflow.Workflow.RunStore
 
   setup do
     tmp =
@@ -89,6 +90,75 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStepTest do
              ExecuteSubWorkflowStep.run(%{step: step, registry: registry, source: "x"}, %{})
   end
 
+  test "inherits backend from workflow context when backend param is not set", %{tmp_dir: tmp_dir} do
+    write_sub_workflow(tmp_dir, "child_flow")
+    {:ok, registry} = start_supervised({Registry, workflow_dir: tmp_dir, name: unique_name()})
+    {:ok, run_store} = start_supervised({RunStore, name: unique_name("run_store")})
+    assert {:ok, %{total: 1}} = Registry.refresh(registry)
+
+    step = %{
+      "name" => "invoke_child",
+      "workflow" => "child_flow",
+      "inputs" => %{"value" => "`input:source`"}
+    }
+
+    params = %{
+      step: step,
+      registry: registry,
+      run_store: run_store,
+      input: [
+        %{
+          "inputs" => %{
+            "source" => "lib/example.ex",
+            "__workflow" => %{"backend" => "strategy"}
+          },
+          "results" => %{}
+        }
+      ]
+    }
+
+    assert {:ok, state} = ExecuteSubWorkflowStep.run(params, %{})
+    assert state["results"]["invoke_child"]["value"] == "child:lib/example.ex"
+
+    assert [%{workflow_id: "child_flow", backend: :strategy, status: :completed}] =
+             RunStore.list(run_store)
+  end
+
+  test "explicit backend param overrides workflow context backend", %{tmp_dir: tmp_dir} do
+    write_sub_workflow(tmp_dir, "child_flow")
+    {:ok, registry} = start_supervised({Registry, workflow_dir: tmp_dir, name: unique_name()})
+    {:ok, run_store} = start_supervised({RunStore, name: unique_name("run_store")})
+    assert {:ok, %{total: 1}} = Registry.refresh(registry)
+
+    step = %{
+      "name" => "invoke_child",
+      "workflow" => "child_flow",
+      "inputs" => %{"value" => "`input:source`"}
+    }
+
+    params = %{
+      step: step,
+      registry: registry,
+      run_store: run_store,
+      backend: "direct",
+      input: [
+        %{
+          "inputs" => %{
+            "source" => "lib/example.ex",
+            "__workflow" => %{"backend" => "strategy"}
+          },
+          "results" => %{}
+        }
+      ]
+    }
+
+    assert {:ok, state} = ExecuteSubWorkflowStep.run(params, %{})
+    assert state["results"]["invoke_child"]["value"] == "child:lib/example.ex"
+
+    assert [%{workflow_id: "child_flow", backend: :direct, status: :completed}] =
+             RunStore.list(run_store)
+  end
+
   defp write_sub_workflow(dir, name) do
     path = Path.join(dir, "#{name}.md")
 
@@ -117,7 +187,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStepTest do
     path
   end
 
-  defp unique_name do
-    :"workflow_subflow_action_registry_#{System.unique_integer([:positive])}"
+  defp unique_name(prefix \\ "registry") do
+    :"workflow_subflow_action_#{prefix}_#{System.unique_integer([:positive])}"
   end
 end
