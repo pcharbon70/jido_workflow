@@ -311,10 +311,12 @@ defmodule JidoWorkflow.Workflow.Engine do
            ) do
         {:ok, pid} ->
           Process.unlink(pid)
+          _ = maybe_invoke_runtime_callback(opts, :on_runtime_agent_started, pid)
 
           try do
             fun.(pid)
           after
+            _ = maybe_invoke_runtime_callback(opts, :on_runtime_agent_stopped, pid)
             stop_runtime_agent(pid)
           end
 
@@ -400,6 +402,24 @@ defmodule JidoWorkflow.Workflow.Engine do
       {:error, reason} ->
         {:error, {:runtime_dependencies_failed, reason}}
     end
+  end
+
+  defp maybe_invoke_runtime_callback(opts, key, pid) do
+    case Keyword.get(opts, key) do
+      callback when is_function(callback, 1) ->
+        callback.(pid)
+        :ok
+
+      _other ->
+        :ok
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "Runtime callback #{inspect(key)} failed for #{inspect(pid)}: #{Exception.message(exception)}"
+      )
+
+      :ok
   end
 
   defp resolve_backend(opts) do
