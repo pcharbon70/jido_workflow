@@ -34,6 +34,13 @@ This document locks the initial architecture contracts for implementing markdown
   - `workflow.run.pause.requested`
   - `workflow.run.resume.requested`
   - `workflow.run.cancel.requested`
+  - `workflow.run.get.requested`
+  - `workflow.run.list.requested`
+  - `workflow.runtime.status.requested`
+  - `workflow.trigger.manual.requested`
+  - `workflow.trigger.refresh.requested`
+  - `workflow.trigger.sync.requested`
+  - `workflow.trigger.runtime.status.requested`
 - Runic strategy/control:
   - `runic.feed`
   - `runic.set_workflow`

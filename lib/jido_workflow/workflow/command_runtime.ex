@@ -8,6 +8,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   - `workflow.run.resume.requested`
   - `workflow.run.cancel.requested`
   - `workflow.trigger.manual.requested`
+  - `workflow.trigger.refresh.requested`
+  - `workflow.trigger.sync.requested`
+  - `workflow.trigger.runtime.status.requested`
   """
 
   use GenServer
@@ -18,6 +21,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   alias JidoWorkflow.Workflow.Engine
   alias JidoWorkflow.Workflow.Registry, as: WorkflowRegistry
   alias JidoWorkflow.Workflow.RunStore
+  alias JidoWorkflow.Workflow.TriggerRuntime
   alias JidoWorkflow.Workflow.TriggerSupervisor
 
   @start_requested "workflow.run.start.requested"
@@ -28,6 +32,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @list_requested "workflow.run.list.requested"
   @runtime_status_requested "workflow.runtime.status.requested"
   @manual_trigger_requested "workflow.trigger.manual.requested"
+  @trigger_refresh_requested "workflow.trigger.refresh.requested"
+  @trigger_sync_requested "workflow.trigger.sync.requested"
+  @trigger_runtime_status_requested "workflow.trigger.runtime.status.requested"
 
   @start_accepted "workflow.run.start.accepted"
   @start_rejected "workflow.run.start.rejected"
@@ -44,6 +51,12 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @runtime_status_accepted "workflow.runtime.status.accepted"
   @manual_trigger_accepted "workflow.trigger.manual.accepted"
   @manual_trigger_rejected "workflow.trigger.manual.rejected"
+  @trigger_refresh_accepted "workflow.trigger.refresh.accepted"
+  @trigger_refresh_rejected "workflow.trigger.refresh.rejected"
+  @trigger_sync_accepted "workflow.trigger.sync.accepted"
+  @trigger_sync_rejected "workflow.trigger.sync.rejected"
+  @trigger_runtime_status_accepted "workflow.trigger.runtime.status.accepted"
+  @trigger_runtime_status_rejected "workflow.trigger.runtime.status.rejected"
 
   @command_source "/jido_workflow/workflow/commands"
 
@@ -61,6 +74,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
           run_store: GenServer.server(),
           trigger_supervisor: GenServer.server(),
           trigger_process_registry: atom(),
+          trigger_runtime: GenServer.server(),
           backend: Engine.backend() | nil,
           subscription_ids: [String.t()],
           run_tasks: %{String.t() => run_task()},
@@ -88,6 +102,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     trigger_process_registry =
       Keyword.get(opts, :trigger_process_registry, default_trigger_process_registry())
 
+    trigger_runtime = Keyword.get(opts, :trigger_runtime, default_trigger_runtime())
+
     backend = normalize_backend(Keyword.get(opts, :backend))
 
     case subscribe_commands(bus) do
@@ -99,6 +115,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
            run_store: run_store,
            trigger_supervisor: trigger_supervisor,
            trigger_process_registry: trigger_process_registry,
+           trigger_runtime: trigger_runtime,
            backend: backend,
            subscription_ids: subscription_ids,
            run_tasks: %{},
@@ -152,6 +169,18 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   def handle_info({:signal, %Signal{type: @manual_trigger_requested} = signal}, state) do
     handle_manual_trigger_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @trigger_refresh_requested} = signal}, state) do
+    handle_trigger_refresh_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @trigger_sync_requested} = signal}, state) do
+    handle_trigger_sync_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @trigger_runtime_status_requested} = signal}, state) do
+    handle_trigger_runtime_status_requested(signal, state)
   end
 
   def handle_info({:command_run_runtime_agent_started, run_id, runtime_agent_pid}, state) do
@@ -243,6 +272,84 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
               "command" => fetch(signal.data, "command"),
               "reason" => format_reason(reason)
             },
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_trigger_refresh_requested(signal, state) do
+    case refresh_trigger_runtime(state.trigger_runtime) do
+      {:ok, refresh_summary} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @trigger_refresh_accepted,
+            %{"summary" => to_signal_value(refresh_summary)},
+            signal
+          )
+
+        {:noreply, state}
+
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @trigger_refresh_rejected,
+            %{"reason" => format_reason(reason)},
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_trigger_sync_requested(signal, state) do
+    case sync_trigger_runtime(state.trigger_runtime) do
+      {:ok, sync_summary} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @trigger_sync_accepted,
+            %{"summary" => to_signal_value(sync_summary)},
+            signal
+          )
+
+        {:noreply, state}
+
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @trigger_sync_rejected,
+            %{"reason" => format_reason(reason)},
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_trigger_runtime_status_requested(signal, state) do
+    case trigger_runtime_status(state.trigger_runtime) do
+      {:ok, status} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @trigger_runtime_status_accepted,
+            %{"status" => to_signal_value(status)},
+            signal
+          )
+
+        {:noreply, state}
+
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @trigger_runtime_status_rejected,
+            %{"reason" => format_reason(reason)},
             signal
           )
 
@@ -754,7 +861,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       @get_requested,
       @list_requested,
       @runtime_status_requested,
-      @manual_trigger_requested
+      @manual_trigger_requested,
+      @trigger_refresh_requested,
+      @trigger_sync_requested,
+      @trigger_runtime_status_requested
     ]
   end
 
@@ -764,6 +874,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       backend: state.backend,
       trigger_supervisor: state.trigger_supervisor,
       trigger_process_registry: state.trigger_process_registry,
+      trigger_runtime: state.trigger_runtime,
       subscription_count: length(state.subscription_ids),
       run_tasks:
         Enum.into(state.run_tasks, %{}, fn {run_id, run_task} ->
@@ -905,6 +1016,27 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
+  defp refresh_trigger_runtime(trigger_runtime) do
+    TriggerRuntime.refresh(trigger_runtime)
+  catch
+    :exit, reason ->
+      {:error, {:trigger_runtime_unavailable, reason}}
+  end
+
+  defp sync_trigger_runtime(trigger_runtime) do
+    TriggerRuntime.sync(trigger_runtime)
+  catch
+    :exit, reason ->
+      {:error, {:trigger_runtime_unavailable, reason}}
+  end
+
+  defp trigger_runtime_status(trigger_runtime) do
+    {:ok, TriggerRuntime.status(trigger_runtime)}
+  catch
+    :exit, reason ->
+      {:error, {:trigger_runtime_unavailable, reason}}
+  end
+
   defp trigger_opts(state) do
     [
       supervisor: state.trigger_supervisor,
@@ -1015,6 +1147,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       :trigger_process_registry,
       JidoWorkflow.Workflow.TriggerProcessRegistry
     )
+  end
+
+  defp default_trigger_runtime do
+    Application.get_env(:jido_workflow, :trigger_runtime, TriggerRuntime)
   end
 
   defp default_run_store do

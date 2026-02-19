@@ -34,6 +34,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
   alias JidoWorkflow.Workflow.CommandRuntime
   alias JidoWorkflow.Workflow.Registry, as: WorkflowRegistry
   alias JidoWorkflow.Workflow.RunStore
+  alias JidoWorkflow.Workflow.TriggerRuntime
   alias JidoWorkflow.Workflow.TriggerSupervisor
 
   setup do
@@ -63,6 +64,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     trigger_supervisor = unique_name("command_runtime_trigger_supervisor")
     start_supervised!({TriggerSupervisor, name: trigger_supervisor})
 
+    trigger_runtime = unique_name("command_runtime_trigger_runtime")
+
+    trigger_runtime_pid =
+      start_supervised!(
+        {TriggerRuntime,
+         name: trigger_runtime,
+         workflow_registry: workflow_registry_pid,
+         trigger_supervisor: trigger_supervisor,
+         process_registry: trigger_process_registry,
+         bus: bus,
+         sync_on_start: false}
+      )
+
     command_runtime = unique_name("command_runtime")
 
     runtime_pid =
@@ -73,7 +87,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
          workflow_registry: workflow_registry_pid,
          run_store: run_store,
          trigger_supervisor: trigger_supervisor,
-         trigger_process_registry: trigger_process_registry}
+         trigger_process_registry: trigger_process_registry,
+         trigger_runtime: trigger_runtime_pid}
       )
 
     for pattern <- [
@@ -85,7 +100,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
           "workflow.run.get.*",
           "workflow.run.list.*",
           "workflow.runtime.status.*",
-          "workflow.trigger.manual.*"
+          "workflow.trigger.manual.*",
+          "workflow.trigger.refresh.*",
+          "workflow.trigger.sync.*",
+          "workflow.trigger.runtime.status.*"
         ] do
       assert {:ok, _sub_id} = Bus.subscribe(bus, pattern, dispatch: {:pid, target: self()})
     end
@@ -99,6 +117,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
      run_store: run_store,
      trigger_supervisor: trigger_supervisor,
      trigger_process_registry: trigger_process_registry,
+     trigger_runtime: trigger_runtime_pid,
      command_runtime: runtime_pid}
   end
 
@@ -380,7 +399,96 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     }},
                    5_000
 
-    assert subscription_count >= 8
+    assert subscription_count >= 11
+  end
+
+  test "handles workflow.trigger.refresh.requested via trigger runtime", context do
+    write_trigger_workflow(context.tmp_dir, "trigger_refresh_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.trigger.refresh.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.refresh.accepted",
+                      data: %{
+                        "summary" => %{
+                          "registry" => %{},
+                          "triggers" => %{"started" => started}
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert started >= 2
+  end
+
+  test "handles workflow.trigger.sync.requested via trigger runtime", context do
+    write_trigger_workflow(context.tmp_dir, "trigger_sync_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+    assert {:ok, %{triggers: _}} = TriggerRuntime.refresh(context.trigger_runtime)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.trigger.sync.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.sync.accepted",
+                      data: %{
+                        "summary" => %{"started" => 0, "skipped" => skipped}
+                      }
+                    }},
+                   5_000
+
+    assert skipped >= 1
+  end
+
+  test "returns trigger runtime status for workflow.trigger.runtime.status.requested", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.trigger.runtime.status.requested",
+                 %{},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "trigger_supervisor" => _trigger_supervisor,
+                          "process_registry" => _process_registry,
+                          "bus" => _bus
+                        }
+                      }
+                    }},
+                   5_000
+  end
+
+  test "rejects workflow.trigger.refresh.requested when trigger runtime is unavailable",
+       context do
+    GenServer.stop(context.trigger_runtime, :normal)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.trigger.refresh.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.refresh.rejected",
+                      data: %{"reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "trigger_runtime_unavailable")
   end
 
   test "handles workflow.trigger.manual.requested by trigger_id", context do
@@ -641,6 +749,38 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     name: #{workflow_name}
     version: "1.0.0"
     enabled: true
+    ---
+
+    # #{workflow_name}
+
+    ## Steps
+
+    ### echo
+    - **type**: action
+    - **module**: JidoWorkflow.Workflow.CommandRuntimeTestActions.Echo
+    - **inputs**:
+      - value: `input:value`
+
+    ## Return
+    - **value**: echo
+    """
+
+    path = Path.join(dir, "#{workflow_name}.md")
+    File.write!(path, markdown)
+    path
+  end
+
+  defp write_trigger_workflow(dir, workflow_name) do
+    markdown = """
+    ---
+    name: #{workflow_name}
+    version: "1.0.0"
+    enabled: true
+    triggers:
+      - type: signal
+        patterns: ["workflow.trigger.#{workflow_name}.requested"]
+      - type: manual
+        command: "/workflow:#{workflow_name}"
     ---
 
     # #{workflow_name}
