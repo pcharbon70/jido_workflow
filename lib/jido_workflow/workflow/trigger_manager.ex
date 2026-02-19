@@ -1,10 +1,12 @@
 defmodule JidoWorkflow.Workflow.TriggerManager do
   @moduledoc """
-  Syncs trigger processes from workflow definitions in the workflow registry.
+  Syncs trigger processes from workflow definitions and optional global trigger
+  configuration.
   """
 
   alias JidoWorkflow.Workflow.Broadcaster
   alias JidoWorkflow.Workflow.Registry, as: WorkflowRegistry
+  alias JidoWorkflow.Workflow.TriggerConfig
   alias JidoWorkflow.Workflow.TriggerSupervisor
 
   @default_process_registry JidoWorkflow.Workflow.TriggerProcessRegistry
@@ -91,11 +93,14 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
     backend = Keyword.get(opts, :backend)
     process_registry = process_registry(opts)
 
+    triggers_config_path =
+      Keyword.get(opts, :triggers_config_path, default_triggers_config_path())
+
     try do
       workflows =
         WorkflowRegistry.list(workflow_registry, include_disabled: false, include_invalid: false)
 
-      {configs, errors} =
+      {workflow_configs, workflow_errors} =
         Enum.reduce(workflows, {[], []}, fn workflow, {acc, err_acc} ->
           workflow_id = workflow.id
 
@@ -124,15 +129,92 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
           end
         end)
 
-      if errors == [] do
-        {:ok, configs}
+      if workflow_errors == [] do
+        case load_global_trigger_configs(
+               triggers_config_path,
+               workflow_registry,
+               bus,
+               backend,
+               process_registry
+             ) do
+          {:ok, global_configs} ->
+            merge_trigger_configs(workflow_configs, global_configs)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
       else
-        {:error, Enum.reverse(errors)}
+        {:error, Enum.reverse(workflow_errors)}
       end
     rescue
       error ->
         {:error, {:registry_access_failed, Exception.message(error)}}
     end
+  end
+
+  defp load_global_trigger_configs(
+         triggers_config_path,
+         workflow_registry,
+         bus,
+         backend,
+         process_registry
+       ) do
+    case TriggerConfig.load_file(triggers_config_path) do
+      {:ok, entries} ->
+        configs =
+          entries
+          |> Enum.reject(&(fetch(&1, "enabled") == false))
+          |> Enum.map(fn config ->
+            build_global_trigger_config(
+              config,
+              workflow_registry,
+              bus,
+              backend,
+              process_registry
+            )
+          end)
+
+        {:ok, configs}
+
+      {:error, errors} when is_list(errors) ->
+        {:error, {:invalid_trigger_config, errors}}
+    end
+  end
+
+  defp build_global_trigger_config(config, workflow_registry, bus, backend, process_registry) do
+    config
+    |> Map.delete(:enabled)
+    |> Map.delete("enabled")
+    |> Map.put(:id, fetch(config, "id"))
+    |> Map.put(:workflow_id, fetch(config, "workflow_id"))
+    |> Map.put(:type, fetch(config, "type"))
+    |> Map.put(:workflow_registry, workflow_registry)
+    |> Map.put(:bus, bus)
+    |> Map.put(:backend, backend)
+    |> Map.put(:process_registry, process_registry)
+  end
+
+  defp merge_trigger_configs(workflow_configs, global_configs) do
+    merged = workflow_configs ++ global_configs
+
+    case duplicate_trigger_ids(merged) do
+      [] ->
+        {:ok, merged}
+
+      duplicates ->
+        {:error, {:duplicate_trigger_ids, duplicates}}
+    end
+  end
+
+  defp duplicate_trigger_ids(configs) do
+    configs
+    |> Enum.reduce(%{}, fn config, acc ->
+      id = to_string(fetch(config, "id"))
+      Map.update(acc, id, 1, &(&1 + 1))
+    end)
+    |> Enum.filter(fn {_id, count} -> count > 1 end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
   end
 
   defp stop_triggers(trigger_ids, trigger_supervisor, process_registry) do
@@ -176,9 +258,34 @@ defmodule JidoWorkflow.Workflow.TriggerManager do
     Application.get_env(:jido_workflow, :workflow_registry, WorkflowRegistry)
   end
 
+  defp default_triggers_config_path do
+    Application.get_env(
+      :jido_workflow,
+      :triggers_config_path,
+      ".jido_code/workflows/triggers.json"
+    )
+  end
+
   defp process_registry(opts) do
     Keyword.get_lazy(opts, :process_registry, fn ->
       Application.get_env(:jido_workflow, :trigger_process_registry, @default_process_registry)
+    end)
+  end
+
+  defp fetch(map, key) when is_map(map) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> fetch_atom_key(map, key)
+    end
+  end
+
+  defp fetch_atom_key(map, key) do
+    Enum.find_value(map, fn
+      {map_key, map_value} when is_atom(map_key) ->
+        if Atom.to_string(map_key) == key, do: map_value
+
+      _other ->
+        nil
     end)
   end
 end

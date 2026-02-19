@@ -154,6 +154,102 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
              )
   end
 
+  test "sync_from_registry loads and runs global triggers from triggers.json", context do
+    write_workflow_without_triggers(context.tmp_dir, "configured_flow")
+
+    triggers_config_path =
+      write_triggers_config(context.tmp_dir, %{
+        "triggers" => [
+          %{
+            "id" => "configured:signal:external",
+            "workflow_id" => "configured_flow",
+            "type" => "signal",
+            "enabled" => true,
+            "config" => %{"patterns" => ["workflow.external.requested"]}
+          },
+          %{
+            "id" => "configured:manual:external",
+            "workflow_id" => "configured_flow",
+            "type" => "manual",
+            "enabled" => true,
+            "config" => %{"command" => "/workflow:configured_flow:external"}
+          }
+        ]
+      })
+
+    assert {:ok, %{total: 1}} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, summary} =
+             TriggerManager.sync_from_registry(
+               workflow_registry: context.workflow_registry,
+               trigger_supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry,
+               bus: context.bus,
+               triggers_config_path: triggers_config_path
+             )
+
+    assert summary.started == 2
+    assert summary.errors == []
+
+    assert TriggerSupervisor.list_trigger_ids(process_registry: context.process_registry) == [
+             "configured:manual:external",
+             "configured:signal:external"
+           ]
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(context.bus, "workflow.run.*", dispatch: {:pid, target: self()})
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.external.requested", %{"value" => "from_external_signal"},
+                 source: "/test"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{
+                        "workflow_id" => "configured_flow",
+                        "result" => %{"echo" => "from_external_signal"}
+                      }
+                    }},
+                   5_000
+
+    assert {:ok, execution} =
+             TriggerSupervisor.trigger_manual(
+               "configured:manual:external",
+               %{"value" => "from_external_manual"},
+               supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry
+             )
+
+    assert execution.status == :completed
+    assert execution.result == %{"echo" => "from_external_manual"}
+  end
+
+  test "sync_from_registry returns invalid_trigger_config errors for malformed trigger config",
+       context do
+    write_workflow_without_triggers(context.tmp_dir, "invalid_config_flow")
+
+    triggers_config_path = Path.join(context.tmp_dir, "triggers.json")
+    File.write!(triggers_config_path, ~s({"triggers":[{"id": 123}]}))
+
+    assert {:ok, %{total: 1}} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:error, {:invalid_trigger_config, errors}} =
+             TriggerManager.sync_from_registry(
+               workflow_registry: context.workflow_registry,
+               trigger_supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry,
+               bus: context.bus,
+               triggers_config_path: triggers_config_path
+             )
+
+    assert is_list(errors)
+    assert Enum.any?(errors, &match?(%JidoWorkflow.Workflow.ValidationError{}, &1))
+  end
+
   defp write_trigger_workflow(dir, name) do
     path = Path.join(dir, "#{name}.md")
 
@@ -184,6 +280,40 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
     """
 
     File.write!(path, markdown)
+    path
+  end
+
+  defp write_workflow_without_triggers(dir, name) do
+    path = Path.join(dir, "#{name}.md")
+
+    markdown = """
+    ---
+    name: #{name}
+    version: "1.0.0"
+    enabled: true
+    ---
+
+    # #{name}
+
+    ## Steps
+
+    ### echo
+    - **type**: action
+    - **module**: JidoWorkflow.Workflow.TriggerTestActions.Echo
+    - **inputs**:
+      - value: `input:value`
+
+    ## Return
+    - **value**: echo
+    """
+
+    File.write!(path, markdown)
+    path
+  end
+
+  defp write_triggers_config(dir, payload) do
+    path = Path.join(dir, "triggers.json")
+    File.write!(path, Jason.encode!(payload))
     path
   end
 
