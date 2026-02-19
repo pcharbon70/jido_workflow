@@ -37,7 +37,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @type run_task :: %{
           pid: pid(),
           monitor_ref: reference(),
-          workflow_id: String.t()
+          workflow_id: String.t(),
+          backend: Engine.backend() | nil,
+          runtime_agent_pid: pid() | nil
         }
 
   @type state :: %{
@@ -54,6 +56,11 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, opts, name: name)
+  end
+
+  @spec status(GenServer.server()) :: map()
+  def status(server \\ __MODULE__) do
+    GenServer.call(server, :status)
   end
 
   @impl true
@@ -88,6 +95,11 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   @impl true
+  def handle_call(:status, _from, state) do
+    {:reply, status_payload(state), state}
+  end
+
+  @impl true
   def handle_info({:signal, %Signal{type: @start_requested} = signal}, state) do
     handle_start_requested(signal, state)
   end
@@ -102,6 +114,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   def handle_info({:signal, %Signal{type: @cancel_requested} = signal}, state) do
     handle_cancel_requested(signal, state)
+  end
+
+  def handle_info({:command_run_runtime_agent_started, run_id, runtime_agent_pid}, state) do
+    {:noreply, register_runtime_agent(state, run_id, runtime_agent_pid)}
   end
 
   def handle_info({:command_run_finished, run_id, _workflow_id, _result}, state) do
@@ -161,6 +177,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp handle_pause_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
+         :ok <- maybe_pause_strategy_runtime(state, run_id),
          :ok <- Engine.pause(run_id, run_store: state.run_store, bus: state.bus),
          {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store) do
       _ =
@@ -194,6 +211,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp handle_resume_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
+         :ok <- maybe_resume_strategy_runtime(state, run_id),
          :ok <- Engine.resume(run_id, run_store: state.run_store, bus: state.bus),
          {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store) do
       _ =
@@ -228,6 +246,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp handle_cancel_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
          reason <- fetch_cancel_reason(signal.data),
+         :ok <- maybe_stop_strategy_runtime(state, run_id),
          :ok <- Engine.cancel(run_id, run_store: state.run_store, bus: state.bus, reason: reason),
          {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store) do
       _ =
@@ -262,11 +281,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp launch_run_task(request, state) do
     run_id = request.run_id || generate_run_id()
+    backend = resolve_backend(request.backend || state.backend)
 
     with :ok <- ensure_run_not_registered(state, run_id),
-         {:ok, pid} <- start_run_task_process(request, run_id, state) do
+         {:ok, pid} <- start_run_task_process(request, run_id, backend, state) do
       monitor_ref = Process.monitor(pid)
-      run_task = %{pid: pid, monitor_ref: monitor_ref, workflow_id: request.workflow_id}
+
+      run_task = %{
+        pid: pid,
+        monitor_ref: monitor_ref,
+        workflow_id: request.workflow_id,
+        backend: backend,
+        runtime_agent_pid: nil
+      }
 
       next_state = %{
         state
@@ -286,7 +313,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
-  defp start_run_task_process(request, run_id, state) do
+  defp start_run_task_process(request, run_id, backend, state) do
     opts =
       [
         registry: state.workflow_registry,
@@ -294,7 +321,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
         bus: state.bus,
         run_id: run_id
       ]
-      |> maybe_put_backend(request.backend || state.backend)
+      |> maybe_put_backend(backend)
+      |> maybe_put_runtime_started_hook(backend, run_id, self())
 
     parent = self()
 
@@ -312,7 +340,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       {nil, _remaining} ->
         state
 
-      {%{pid: pid, monitor_ref: monitor_ref}, remaining_tasks} ->
+      {%{pid: pid, monitor_ref: monitor_ref, runtime_agent_pid: runtime_agent_pid},
+       remaining_tasks} ->
+        _ = stop_runtime_agent(runtime_agent_pid)
+
         if Process.alive?(pid) do
           Process.exit(pid, :kill)
         end
@@ -338,6 +369,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
         }
     end
   end
+
+  defp register_runtime_agent(state, run_id, runtime_agent_pid) when is_pid(runtime_agent_pid) do
+    case Map.fetch(state.run_tasks, run_id) do
+      {:ok, run_task} ->
+        updated_task = Map.put(run_task, :runtime_agent_pid, runtime_agent_pid)
+        %{state | run_tasks: Map.put(state.run_tasks, run_id, updated_task)}
+
+      :error ->
+        state
+    end
+  end
+
+  defp register_runtime_agent(state, _run_id, _runtime_agent_pid), do: state
 
   defp subscribe_commands(bus) do
     command_types()
@@ -443,11 +487,136 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     [@start_requested, @pause_requested, @resume_requested, @cancel_requested]
   end
 
+  defp status_payload(state) do
+    %{
+      bus: state.bus,
+      backend: state.backend,
+      subscription_count: length(state.subscription_ids),
+      run_tasks:
+        Enum.into(state.run_tasks, %{}, fn {run_id, run_task} ->
+          {run_id,
+           %{
+             workflow_id: run_task.workflow_id,
+             backend: run_task.backend,
+             runtime_agent_pid: run_task.runtime_agent_pid,
+             task_alive?: Process.alive?(run_task.pid)
+           }}
+        end)
+    }
+  end
+
+  defp maybe_pause_strategy_runtime(state, run_id) do
+    with {:ok, run_task} <- fetch_run_task(state, run_id),
+         :strategy <- run_task.backend,
+         {:ok, runtime_agent_pid} <- fetch_runtime_agent_pid(run_task) do
+      send_runtime_signal(
+        runtime_agent_pid,
+        "runic.set_mode",
+        %{mode: :step},
+        runtime_source(run_id, "pause")
+      )
+    else
+      :direct -> :ok
+      nil -> :ok
+      {:error, :run_not_tracked} -> :ok
+      {:error, :runtime_agent_unavailable} -> {:error, :runtime_agent_unavailable}
+    end
+  end
+
+  defp maybe_resume_strategy_runtime(state, run_id) do
+    with {:ok, run_task} <- fetch_run_task(state, run_id),
+         :strategy <- run_task.backend,
+         {:ok, runtime_agent_pid} <- fetch_runtime_agent_pid(run_task) do
+      send_runtime_signal(
+        runtime_agent_pid,
+        "runic.resume",
+        %{},
+        runtime_source(run_id, "resume")
+      )
+    else
+      :direct -> :ok
+      nil -> :ok
+      {:error, :run_not_tracked} -> :ok
+      {:error, :runtime_agent_unavailable} -> {:error, :runtime_agent_unavailable}
+    end
+  end
+
+  defp maybe_stop_strategy_runtime(state, run_id) do
+    with {:ok, run_task} <- fetch_run_task(state, run_id),
+         :strategy <- run_task.backend,
+         {:ok, runtime_agent_pid} <- fetch_runtime_agent_pid(run_task) do
+      stop_runtime_agent(runtime_agent_pid)
+    else
+      :direct -> :ok
+      nil -> :ok
+      {:error, :run_not_tracked} -> :ok
+      {:error, :runtime_agent_unavailable} -> :ok
+    end
+  end
+
+  defp fetch_run_task(state, run_id) do
+    case Map.fetch(state.run_tasks, run_id) do
+      {:ok, run_task} -> {:ok, run_task}
+      :error -> {:error, :run_not_tracked}
+    end
+  end
+
+  defp fetch_runtime_agent_pid(%{runtime_agent_pid: runtime_agent_pid})
+       when is_pid(runtime_agent_pid),
+       do: {:ok, runtime_agent_pid}
+
+  defp fetch_runtime_agent_pid(_run_task), do: {:error, :runtime_agent_unavailable}
+
+  defp send_runtime_signal(runtime_agent_pid, signal_type, data, source) do
+    signal = Signal.new!(signal_type, data, source: source)
+
+    case Jido.AgentServer.call(runtime_agent_pid, signal) do
+      {:ok, _agent} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, {:runtime_command_failed, signal_type, reason}}
+    end
+  catch
+    :exit, reason ->
+      {:error, {:runtime_agent_exit, reason}}
+  end
+
+  defp stop_runtime_agent(runtime_agent_pid) when is_pid(runtime_agent_pid) do
+    if Process.alive?(runtime_agent_pid) do
+      GenServer.stop(runtime_agent_pid, :normal, 1_000)
+    else
+      :ok
+    end
+  catch
+    :exit, _reason ->
+      :ok
+  end
+
+  defp stop_runtime_agent(_runtime_agent_pid), do: :ok
+
+  defp maybe_put_runtime_started_hook(opts, :strategy, run_id, parent) do
+    callback = fn runtime_agent_pid ->
+      send(parent, {:command_run_runtime_agent_started, run_id, runtime_agent_pid})
+    end
+
+    Keyword.put(opts, :on_runtime_agent_started, callback)
+  end
+
+  defp maybe_put_runtime_started_hook(opts, _backend, _run_id, _parent), do: opts
+
+  defp runtime_source(run_id, suffix) do
+    @command_source <> "/" <> run_id <> "/" <> suffix
+  end
+
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp maybe_put_backend(opts, nil), do: opts
   defp maybe_put_backend(opts, backend), do: Keyword.put(opts, :backend, backend)
+
+  defp resolve_backend(value) when value in [:direct, :strategy], do: value
+  defp resolve_backend(_value), do: default_engine_backend()
 
   defp normalize_backend(value) when value in [:direct, :strategy], do: value
 
@@ -492,6 +661,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp default_run_store do
     Application.get_env(:jido_workflow, :run_store, RunStore)
+  end
+
+  defp default_engine_backend do
+    Application.get_env(:jido_workflow, :engine_backend, :direct)
   end
 
   defp generate_run_id do

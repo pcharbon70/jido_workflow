@@ -186,6 +186,36 @@ defmodule JidoWorkflow.Workflow.EngineTest do
                     }}
   end
 
+  test "execute_compiled/3 invokes runtime-agent callback when using strategy backend" do
+    definition =
+      base_definition([
+        %DefinitionStep{
+          name: "parse_file",
+          type: "action",
+          module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+          inputs: %{"file_path" => "`input:file_path`"},
+          depends_on: []
+        }
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    callback = fn runtime_agent_pid ->
+      send(self(), {:runtime_agent_started, runtime_agent_pid})
+    end
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               backend: :strategy,
+               await_timeout: 30_000,
+               on_runtime_agent_started: callback
+             )
+
+    assert execution.status == :completed
+    assert_receive {:runtime_agent_started, runtime_agent_pid}
+    assert is_pid(runtime_agent_pid)
+  end
+
   test "execute_compiled/3 only emits workflow completion events when channel policy is workflow_complete" do
     bus = start_test_bus()
 
