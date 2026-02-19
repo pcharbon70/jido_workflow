@@ -35,6 +35,27 @@ defmodule JidoWorkflow.Workflow.EngineTestActions.Fail do
   end
 end
 
+defmodule JidoWorkflow.Workflow.EngineTestActions.Compensate do
+  use Jido.Action,
+    name: "engine_compensate",
+    schema: []
+
+  @impl true
+  def run(%{notify_pid: notify_pid} = params, _context) when is_pid(notify_pid) do
+    payload =
+      params
+      |> Map.delete(:notify_pid)
+      |> Map.delete("notify_pid")
+
+    send(notify_pid, {:compensated, payload})
+    {:ok, %{"status" => "compensated"}}
+  end
+
+  def run(_params, _context) do
+    {:ok, %{"status" => "compensated"}}
+  end
+end
+
 defmodule JidoWorkflow.Workflow.EngineTestActions.Slow do
   use Jido.Action,
     name: "engine_slow",
@@ -192,6 +213,75 @@ defmodule JidoWorkflow.Workflow.EngineTest do
                     }}
   end
 
+  test "execute_compiled/3 runs compensation handlers when on_failure is compensate" do
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "fail_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Fail",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        settings: %Settings{on_failure: "compensate"},
+        error_handling: [
+          %{
+            "handler" => "compensate:fail_step",
+            "action" => "JidoWorkflow.Workflow.EngineTestActions.Compensate",
+            "inputs" => %{
+              "notify_pid" => "`input:test_pid`",
+              "file_path" => "`input:file_path`"
+            }
+          }
+        ]
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error, {:return_projection_failed, :no_productions}} =
+             Engine.execute_compiled(
+               compiled,
+               %{"test_pid" => self(), "file_path" => "lib/example.ex"}, backend: :direct)
+
+    assert_receive {:compensated, payload}
+
+    assert (Map.get(payload, :file_path) || Map.get(payload, "file_path")) == "lib/example.ex"
+  end
+
+  test "execute_compiled/3 does not run compensation handlers when on_failure is halt" do
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "fail_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Fail",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        settings: %Settings{on_failure: "halt"},
+        error_handling: [
+          %{
+            "handler" => "compensate:fail_step",
+            "action" => "JidoWorkflow.Workflow.EngineTestActions.Compensate",
+            "inputs" => %{
+              "notify_pid" => "`input:test_pid`"
+            }
+          }
+        ]
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error, {:return_projection_failed, :no_productions}} =
+             Engine.execute_compiled(compiled, %{"test_pid" => self()}, backend: :direct)
+
+    refute_receive {:compensated, _}
+  end
+
   test "execute_compiled/3 broadcasts failed signal when execution fails (strategy backend)" do
     bus = start_test_bus()
 
@@ -312,7 +402,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
       settings: Keyword.get(opts, :settings),
       channel: nil,
       steps: steps,
-      error_handling: [],
+      error_handling: Keyword.get(opts, :error_handling, []),
       return: nil
     }
   end

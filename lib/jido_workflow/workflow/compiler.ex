@@ -17,6 +17,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
   @type compiled_bundle :: %{
           workflow: Workflow.t(),
           return: %{value: String.t() | nil, transform: String.t() | nil},
+          error_handling: [map()],
           settings:
             %{
               max_concurrency: pos_integer() | nil,
@@ -51,6 +52,7 @@ defmodule JidoWorkflow.Workflow.Compiler do
        %{
          workflow: workflow,
          return: compile_return(definition.return),
+         error_handling: compile_error_handling(definition.error_handling),
          settings: compile_settings(definition.settings),
          metadata: %{
            name: definition.name,
@@ -311,6 +313,10 @@ defmodule JidoWorkflow.Workflow.Compiler do
 
   defp compile_return(%Definition.Return{value: value, transform: transform}),
     do: %{value: value, transform: transform}
+
+  defp compile_error_handling(nil), do: []
+  defp compile_error_handling(error_handling) when is_list(error_handling), do: error_handling
+  defp compile_error_handling(_other), do: []
 
   defp compile_settings(nil), do: nil
 

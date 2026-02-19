@@ -7,6 +7,8 @@ defmodule JidoWorkflow.Workflow.Engine do
   - `:strategy`: execute through `Jido.Runic.Strategy` using an AgentServer
   """
 
+  require Logger
+
   alias Jido.Agent.Strategy.State, as: StratState
   alias Jido.Signal
   alias JidoWorkflow.Workflow.ArgumentResolver
@@ -75,12 +77,20 @@ defmodule JidoWorkflow.Workflow.Engine do
             run_id,
             executed,
             productions,
+            state,
             opts
           )
 
         {:error, reason} ->
-          _ = maybe_broadcast_failed(workflow_id, run_id, reason, opts)
-          {:error, {:execution_failed, reason}}
+          handle_failure(
+            compiled,
+            workflow_id,
+            run_id,
+            {:execution_failed, reason},
+            state,
+            [],
+            opts
+          )
       end
     end
   end
@@ -112,7 +122,7 @@ defmodule JidoWorkflow.Workflow.Engine do
     end)
   end
 
-  defp handle_projected_result(compiled, workflow_id, run_id, executed, productions, opts) do
+  defp handle_projected_result(compiled, workflow_id, run_id, executed, productions, state, opts) do
     case ReturnProjector.project(productions, compiled[:return]) do
       {:ok, result} ->
         _ = maybe_broadcast_completed(workflow_id, run_id, result, opts)
@@ -128,9 +138,24 @@ defmodule JidoWorkflow.Workflow.Engine do
          }}
 
       {:error, reason} ->
-        _ = maybe_broadcast_failed(workflow_id, run_id, reason, opts)
-        {:error, {:return_projection_failed, reason}}
+        handle_failure(
+          compiled,
+          workflow_id,
+          run_id,
+          {:return_projection_failed, reason},
+          state,
+          productions,
+          opts
+        )
     end
+  end
+
+  defp handle_failure(compiled, workflow_id, run_id, error, initial_state, productions, opts) do
+    _ =
+      maybe_apply_failure_policy(compiled, workflow_id, run_id, error, initial_state, productions)
+
+    _ = maybe_broadcast_failed(workflow_id, run_id, error, opts)
+    {:error, error}
   end
 
   defp with_runtime_agent(opts, fun) when is_function(fun, 1) do
@@ -322,6 +347,13 @@ defmodule JidoWorkflow.Workflow.Engine do
     end
   end
 
+  defp compiled_error_handling(compiled) when is_map(compiled) do
+    case Map.get(compiled, :error_handling) || Map.get(compiled, "error_handling") do
+      handlers when is_list(handlers) -> handlers
+      _ -> []
+    end
+  end
+
   defp workflow_timeout(settings) do
     case fetch_setting(settings, :timeout_ms) do
       value when is_integer(value) and value > 0 -> value
@@ -353,6 +385,190 @@ defmodule JidoWorkflow.Workflow.Engine do
 
   defp fetch_setting(settings, key) when is_map(settings) do
     Map.get(settings, key) || Map.get(settings, Atom.to_string(key))
+  end
+
+  defp maybe_apply_failure_policy(
+         compiled,
+         workflow_id,
+         run_id,
+         error,
+         initial_state,
+         productions
+       ) do
+    settings = compiled_settings(compiled)
+    policy = fetch_setting(settings, :on_failure)
+
+    if policy == "compensate" do
+      state = compensation_state(initial_state, productions)
+      handlers = compiled_error_handling(compiled)
+      execute_compensation_handlers(handlers, state, workflow_id, run_id, error)
+    else
+      :ok
+    end
+  end
+
+  defp compensation_state(initial_state, productions) do
+    normalized_initial = ArgumentResolver.normalize_state(initial_state)
+    ArgumentResolver.normalize_state([normalized_initial | List.wrap(productions)])
+  end
+
+  defp execute_compensation_handlers(handlers, state, workflow_id, run_id, error)
+       when is_list(handlers) do
+    Enum.each(handlers, fn handler ->
+      case normalize_compensation_handler(handler) do
+        {:ok, handler_meta} ->
+          _ = run_compensation_handler(handler_meta, state, workflow_id, run_id, error)
+          :ok
+
+        :skip ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Skipping invalid compensation handler: #{inspect(reason)}")
+      end
+    end)
+  end
+
+  defp normalize_compensation_handler(handler) when is_map(handler) do
+    handler_name = fetch(handler, "handler")
+
+    action = fetch(handler, "action")
+    inputs = fetch(handler, "inputs")
+
+    cond do
+      not compensation_handler?(handler_name) ->
+        :skip
+
+      is_nil(action) ->
+        {:error, {:missing_action, handler_name}}
+
+      not (is_map(inputs) or is_list(inputs) or is_nil(inputs)) ->
+        {:error, {:invalid_inputs, handler_name, inputs}}
+
+      true ->
+        {:ok,
+         %{
+           handler: handler_name,
+           action: action,
+           inputs: inputs
+         }}
+    end
+  end
+
+  defp normalize_compensation_handler(other), do: {:error, {:invalid_handler, other}}
+
+  defp run_compensation_handler(handler_meta, state, workflow_id, run_id, workflow_error) do
+    with {:ok, action_module} <- resolve_module(handler_meta.action),
+         {:ok, resolved_inputs} <- ArgumentResolver.resolve_inputs(handler_meta.inputs, state),
+         {:ok, _result} <-
+           run_compensation_action(
+             action_module,
+             resolved_inputs,
+             handler_meta.handler,
+             workflow_id,
+             run_id,
+             workflow_error
+           ) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning(
+          "Compensation handler #{inspect(handler_meta.handler)} failed: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp run_compensation_action(
+         action_module,
+         resolved_inputs,
+         handler_name,
+         workflow_id,
+         run_id,
+         workflow_error
+       ) do
+    context = %{
+      workflow_handler: handler_name,
+      workflow_id: workflow_id,
+      workflow_run_id: run_id,
+      workflow_error: workflow_error
+    }
+
+    case Jido.Exec.run(action_module, atomize_top_level_keys(resolved_inputs), context) do
+      {:ok, result} -> {:ok, result}
+      {:ok, result, _extra} -> {:ok, result}
+      {:error, reason} -> {:error, {:action_failed, reason}}
+    end
+  end
+
+  defp compensation_handler?(name) when is_binary(name),
+    do: String.starts_with?(name, "compensate:")
+
+  defp compensation_handler?(_name), do: false
+
+  defp resolve_module(module) when is_atom(module), do: {:ok, module}
+
+  defp resolve_module(module) when is_binary(module) do
+    qualified =
+      if String.starts_with?(module, "Elixir.") do
+        module
+      else
+        "Elixir." <> module
+      end
+
+    try do
+      resolved = String.to_existing_atom(qualified)
+
+      if Code.ensure_loaded?(resolved) do
+        {:ok, resolved}
+      else
+        {:error, {:module_not_loaded, module}}
+      end
+    rescue
+      ArgumentError ->
+        {:error, {:module_not_loaded, module}}
+    end
+  end
+
+  defp resolve_module(other), do: {:error, {:invalid_module, other}}
+
+  defp atomize_top_level_keys(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      converted_key =
+        case key do
+          atom when is_atom(atom) ->
+            atom
+
+          binary when is_binary(binary) ->
+            try do
+              String.to_existing_atom(binary)
+            rescue
+              ArgumentError -> binary
+            end
+
+          other ->
+            other
+        end
+
+      Map.put(acc, converted_key, value)
+    end)
+  end
+
+  defp fetch(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || fetch_atom_key(map, key)
+  end
+
+  defp fetch(_map, _key), do: nil
+
+  defp fetch_atom_key(map, key) do
+    Enum.find_value(map, fn
+      {atom_key, value} when is_atom(atom_key) ->
+        if Atom.to_string(atom_key) == key, do: value
+
+      _other ->
+        nil
+    end)
   end
 
   defp generate_run_id do
