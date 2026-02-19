@@ -213,7 +213,13 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStep do
   end
 
   defp broadcast_event_enabled?(state, event_name) do
-    case fetch_context_value(workflow_context(state), "broadcast_events") do
+    context = workflow_context(state)
+
+    events =
+      fetch_context_value(context, "broadcast_events") ||
+        fetch_context_value(context, "publish_events")
+
+    case events do
       nil ->
         true
 

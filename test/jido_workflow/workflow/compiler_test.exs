@@ -9,6 +9,7 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
   alias JidoWorkflow.Workflow.Definition
   alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
   alias JidoWorkflow.Workflow.Definition.Input, as: DefinitionInput
+  alias JidoWorkflow.Workflow.Definition.Signals, as: DefinitionSignals
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Loader
   alias Runic.Workflow
@@ -26,6 +27,15 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert compiled.settings.timeout_ms == 300_000
     assert compiled.settings.on_failure == "compensate"
     assert compiled.settings.retry_policy.max_retries == 3
+    assert compiled.signals.topic == "workflow:code_review"
+
+    assert compiled.signals.publish_events == [
+             "step_started",
+             "step_completed",
+             "step_failed",
+             "workflow_complete"
+           ]
+
     assert compiled.channel.topic == "workflow:code_review"
 
     assert compiled.channel.broadcast_events == [
@@ -125,6 +135,25 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert {:ok, compiled} = Compiler.compile(definition)
     assert compiled.channel.topic == "workflow:security"
     assert compiled.channel.broadcast_events == ["workflow_complete"]
+    assert compiled.signals.topic == "workflow:security"
+    assert compiled.signals.publish_events == ["workflow_complete"]
+  end
+
+  test "compile/1 includes signal configuration for programmatic definitions" do
+    definition =
+      base_definition(
+        [step("security_scan", type: "agent", callback_signal: "security.scan.complete")],
+        signals: %DefinitionSignals{
+          topic: "workflow:signals_security",
+          publish_events: ["step_started"]
+        }
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+    assert compiled.signals.topic == "workflow:signals_security"
+    assert compiled.signals.publish_events == ["step_started"]
+    assert compiled.channel.topic == "workflow:signals_security"
+    assert compiled.channel.broadcast_events == ["step_started"]
   end
 
   test "compile/1 includes normalized workflow input schema" do
@@ -198,6 +227,7 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
       inputs: Keyword.get(opts, :inputs, []),
       triggers: [],
       settings: nil,
+      signals: Keyword.get(opts, :signals),
       channel: Keyword.get(opts, :channel),
       steps: steps,
       error_handling: [],

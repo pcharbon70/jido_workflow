@@ -547,7 +547,7 @@ defmodule JidoWorkflow.Workflow.Engine do
 
   defp broadcast_opts(compiled, opts) do
     [bus: Keyword.get(opts, :bus, Broadcaster.default_bus())]
-    |> maybe_put_opt(:source, channel_source(compiled_channel(compiled)))
+    |> maybe_put_opt(:source, signal_source(compiled_signal_policy(compiled)))
   end
 
   defp maybe_put_setting_metadata(metadata, settings) do
@@ -584,33 +584,52 @@ defmodule JidoWorkflow.Workflow.Engine do
     end
   end
 
-  defp compiled_channel(compiled) when is_map(compiled) do
-    case Map.get(compiled, :channel) || Map.get(compiled, "channel") do
-      %{} = channel -> channel
-      _ -> nil
-    end
-  end
-
   defp broadcast_event_enabled?(compiled, event_name) do
-    case channel_broadcast_events(compiled_channel(compiled)) do
+    case signal_publish_events(compiled_signal_policy(compiled)) do
       nil -> true
       events -> event_name in events
     end
   end
 
-  defp channel_broadcast_events(nil), do: nil
+  defp compiled_signal_policy(compiled) when is_map(compiled) do
+    case Map.get(compiled, :signals) || Map.get(compiled, "signals") do
+      %{} = signals ->
+        signals
 
-  defp channel_broadcast_events(channel) when is_map(channel) do
-    case Map.get(channel, :broadcast_events) || Map.get(channel, "broadcast_events") do
+      _ ->
+        normalize_legacy_channel(Map.get(compiled, :channel) || Map.get(compiled, "channel"))
+    end
+  end
+
+  defp normalize_legacy_channel(%{} = channel) do
+    %{
+      topic: Map.get(channel, :topic) || Map.get(channel, "topic"),
+      publish_events:
+        Map.get(channel, :broadcast_events) ||
+          Map.get(channel, "broadcast_events") ||
+          Map.get(channel, :publish_events) ||
+          Map.get(channel, "publish_events")
+    }
+  end
+
+  defp normalize_legacy_channel(_other), do: nil
+
+  defp signal_publish_events(nil), do: nil
+
+  defp signal_publish_events(signal_policy) when is_map(signal_policy) do
+    case Map.get(signal_policy, :publish_events) ||
+           Map.get(signal_policy, "publish_events") ||
+           Map.get(signal_policy, :broadcast_events) ||
+           Map.get(signal_policy, "broadcast_events") do
       events when is_list(events) -> events
       _ -> nil
     end
   end
 
-  defp channel_source(nil), do: nil
+  defp signal_source(nil), do: nil
 
-  defp channel_source(channel) when is_map(channel) do
-    case Map.get(channel, :topic) || Map.get(channel, "topic") do
+  defp signal_source(signal_policy) when is_map(signal_policy) do
+    case Map.get(signal_policy, :topic) || Map.get(signal_policy, "topic") do
       topic when is_binary(topic) and topic != "" ->
         "/jido_workflow/workflow/" <> URI.encode_www_form(topic)
 
@@ -619,25 +638,28 @@ defmodule JidoWorkflow.Workflow.Engine do
     end
   end
 
-  defp channel_topic(nil), do: nil
+  defp signal_topic(nil), do: nil
 
-  defp channel_topic(channel) when is_map(channel) do
-    case Map.get(channel, :topic) || Map.get(channel, "topic") do
+  defp signal_topic(signal_policy) when is_map(signal_policy) do
+    case Map.get(signal_policy, :topic) || Map.get(signal_policy, "topic") do
       topic when is_binary(topic) and topic != "" -> topic
       _ -> nil
     end
   end
 
   defp workflow_runtime_context(compiled, workflow_id, run_id, opts) do
-    channel = compiled_channel(compiled)
+    signal_policy = compiled_signal_policy(compiled)
 
     %{
       "workflow_id" => workflow_id,
       "run_id" => run_id,
       "bus" => Keyword.get(opts, :bus, Broadcaster.default_bus()),
-      "source" => channel_source(channel),
-      "channel_topic" => channel_topic(channel),
-      "broadcast_events" => channel_broadcast_events(channel)
+      "source" => signal_source(signal_policy),
+      "signal_topic" => signal_topic(signal_policy),
+      "publish_events" => signal_publish_events(signal_policy),
+      # Legacy keys used by existing step executors/tests.
+      "channel_topic" => signal_topic(signal_policy),
+      "broadcast_events" => signal_publish_events(signal_policy)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()

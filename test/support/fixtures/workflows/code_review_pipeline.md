@@ -29,9 +29,9 @@ settings:
     base_delay_ms: 1000
   on_failure: compensate
 
-channel:
+signals:
   topic: "workflow:code_review"
-  broadcast_events: [step_started, step_completed, step_failed, workflow_complete]
+  publish_events: [step_started, step_completed, step_failed, workflow_complete]
 ---
 
 # Code Review Pipeline

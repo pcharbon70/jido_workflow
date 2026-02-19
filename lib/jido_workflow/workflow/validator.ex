@@ -11,6 +11,7 @@ defmodule JidoWorkflow.Workflow.Validator do
     RetryPolicy,
     Return,
     Settings,
+    Signals,
     Step,
     Trigger
   }
@@ -54,7 +55,7 @@ defmodule JidoWorkflow.Workflow.Validator do
 
     {steps, errors} = validate_steps(get(attrs, :steps, []), ["steps"], step_types, errors)
     {settings, errors} = validate_settings(get(attrs, :settings), ["settings"], errors)
-    {channel, errors} = validate_channel(get(attrs, :channel), ["channel"], errors)
+    {signals, channel, errors} = validate_signal_policy(attrs, errors)
 
     {error_handling, errors} =
       validate_error_handling(get(attrs, :error_handling, []), ["error_handling"], errors)
@@ -69,6 +70,7 @@ defmodule JidoWorkflow.Workflow.Validator do
       inputs: inputs,
       triggers: triggers,
       settings: settings,
+      signals: signals,
       channel: channel,
       steps: steps,
       error_handling: error_handling,
@@ -392,26 +394,172 @@ defmodule JidoWorkflow.Workflow.Validator do
     {nil, error(errors, path, :invalid_type, "retry_policy must be a map")}
   end
 
+  defp validate_signal_policy(attrs, errors) do
+    signals_attrs = get(attrs, :signals)
+    channel_attrs = get(attrs, :channel)
+
+    {signals, errors} = validate_signals(signals_attrs, ["signals"], errors)
+    {channel, errors} = validate_channel(channel_attrs, ["channel"], errors)
+
+    errors =
+      maybe_add_signal_policy_conflict_error(
+        errors,
+        signals_attrs,
+        channel_attrs,
+        signals,
+        channel
+      )
+
+    normalized_signals =
+      cond do
+        match?(%Signals{}, signals) -> signals
+        match?(%Channel{}, channel) -> channel_to_signals(channel)
+        true -> nil
+      end
+
+    normalized_channel =
+      cond do
+        match?(%Channel{}, channel) -> channel
+        match?(%Signals{}, signals) -> signals_to_channel(signals)
+        true -> nil
+      end
+
+    {normalized_signals, normalized_channel, errors}
+  end
+
+  defp validate_signals(nil, _path, errors), do: {nil, errors}
+
+  defp validate_signals(signals, path, errors) when is_map(signals) do
+    {topic, errors} = optional_string(signals, :topic, path ++ ["topic"], errors)
+
+    {publish_events, errors} =
+      optional_string_list(signals, :publish_events, path ++ ["publish_events"], errors)
+
+    {broadcast_events, errors} =
+      optional_string_list(signals, :broadcast_events, path ++ ["broadcast_events"], errors)
+
+    events = publish_events || broadcast_events
+    errors = maybe_add_event_alias_conflict(errors, publish_events, broadcast_events, path)
+    errors = maybe_add_unsupported_event_error(errors, events, path ++ ["publish_events"])
+
+    {%Signals{topic: topic, publish_events: events}, errors}
+  end
+
+  defp validate_signals(_, path, errors) do
+    {nil, error(errors, path, :invalid_type, "signals must be a map")}
+  end
+
   defp validate_channel(nil, _path, errors), do: {nil, errors}
 
   defp validate_channel(channel, path, errors) when is_map(channel) do
     {topic, errors} = optional_string(channel, :topic, path ++ ["topic"], errors)
 
-    {events, errors} =
+    {broadcast_events, errors} =
       optional_string_list(channel, :broadcast_events, path ++ ["broadcast_events"], errors)
 
-    errors =
-      if events && Enum.any?(events, &(&1 not in @broadcast_events)) do
-        error(errors, path ++ ["broadcast_events"], :invalid_value, "contains unsupported event")
-      else
-        errors
-      end
+    {publish_events, errors} =
+      optional_string_list(channel, :publish_events, path ++ ["publish_events"], errors)
+
+    events = broadcast_events || publish_events
+    errors = maybe_add_event_alias_conflict(errors, broadcast_events, publish_events, path)
+    errors = maybe_add_unsupported_event_error(errors, events, path ++ ["broadcast_events"])
 
     {%Channel{topic: topic, broadcast_events: events}, errors}
   end
 
   defp validate_channel(_, path, errors) do
     {nil, error(errors, path, :invalid_type, "channel must be a map")}
+  end
+
+  defp maybe_add_event_alias_conflict(errors, nil, _other, _path), do: errors
+  defp maybe_add_event_alias_conflict(errors, _one, nil, _path), do: errors
+
+  defp maybe_add_event_alias_conflict(errors, one, other, path) do
+    if event_lists_equal?(one, other) do
+      errors
+    else
+      error(
+        errors,
+        path,
+        :invalid_value,
+        "publish_events and broadcast_events must match when both are provided"
+      )
+    end
+  end
+
+  defp maybe_add_unsupported_event_error(errors, nil, _path), do: errors
+
+  defp maybe_add_unsupported_event_error(errors, events, path) do
+    if Enum.any?(events, &(&1 not in @broadcast_events)) do
+      error(errors, path, :invalid_value, "contains unsupported event")
+    else
+      errors
+    end
+  end
+
+  defp maybe_add_signal_policy_conflict_error(errors, nil, _channel_attrs, _signals, _channel),
+    do: errors
+
+  defp maybe_add_signal_policy_conflict_error(errors, _signals_attrs, nil, _signals, _channel),
+    do: errors
+
+  defp maybe_add_signal_policy_conflict_error(
+         errors,
+         _signals_attrs,
+         _channel_attrs,
+         %Signals{} = signals,
+         %Channel{} = channel
+       ) do
+    if signal_policies_match?(signals, channel) do
+      errors
+    else
+      error(
+        errors,
+        ["signals"],
+        :invalid_value,
+        "signals and channel must match when both are provided"
+      )
+    end
+  end
+
+  defp maybe_add_signal_policy_conflict_error(
+         errors,
+         _signals_attrs,
+         _channel_attrs,
+         _signals,
+         _channel
+       ),
+       do: errors
+
+  defp signal_policies_match?(%Signals{} = signals, %Channel{} = channel) do
+    signals.topic == channel.topic and
+      event_lists_equal?(signals.publish_events, channel.broadcast_events)
+  end
+
+  defp event_lists_equal?(left, right) do
+    normalize_event_list(left) == normalize_event_list(right)
+  end
+
+  defp normalize_event_list(nil), do: nil
+
+  defp normalize_event_list(events) when is_list(events) do
+    events
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp signals_to_channel(%Signals{} = signals) do
+    %Channel{
+      topic: signals.topic,
+      broadcast_events: signals.publish_events
+    }
+  end
+
+  defp channel_to_signals(%Channel{} = channel) do
+    %Signals{
+      topic: channel.topic,
+      publish_events: channel.broadcast_events
+    }
   end
 
   defp validate_error_handling(handlers, path, errors) when is_list(handlers) do

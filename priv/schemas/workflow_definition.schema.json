@@ -53,11 +53,29 @@
         "on_failure": { "enum": ["compensate", "halt", "continue"] }
       }
     },
+    "signals": {
+      "type": "object",
+      "properties": {
+        "topic": { "type": "string" },
+        "publish_events": {
+          "type": "array",
+          "items": { "enum": ["step_started", "step_completed", "step_failed", "workflow_complete", "agent_state"] }
+        },
+        "broadcast_events": {
+          "type": "array",
+          "items": { "enum": ["step_started", "step_completed", "step_failed", "workflow_complete", "agent_state"] }
+        }
+      }
+    },
     "channel": {
       "type": "object",
       "properties": {
         "topic": { "type": "string" },
         "broadcast_events": {
+          "type": "array",
+          "items": { "enum": ["step_started", "step_completed", "step_failed", "workflow_complete", "agent_state"] }
+        },
+        "publish_events": {
           "type": "array",
           "items": { "enum": ["step_started", "step_completed", "step_failed", "workflow_complete", "agent_state"] }
         }

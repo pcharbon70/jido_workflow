@@ -62,9 +62,24 @@ defmodule JidoWorkflow.Workflow.Definition.Settings do
         }
 end
 
+defmodule JidoWorkflow.Workflow.Definition.Signals do
+  @moduledoc """
+  Workflow signal publication configuration.
+  """
+
+  defstruct [:topic, :publish_events]
+
+  @type t :: %__MODULE__{
+          topic: String.t() | nil,
+          publish_events: [String.t()] | nil
+        }
+end
+
 defmodule JidoWorkflow.Workflow.Definition.Channel do
   @moduledoc """
-  Workflow channel/broadcast configuration.
+  Legacy workflow channel/broadcast configuration.
+
+  Prefer `JidoWorkflow.Workflow.Definition.Signals` for new workflow definitions.
   """
 
   defstruct [:topic, :broadcast_events]
@@ -147,6 +162,7 @@ defmodule JidoWorkflow.Workflow.Definition do
     Input,
     Return,
     Settings,
+    Signals,
     Step,
     Trigger
   }
@@ -160,6 +176,7 @@ defmodule JidoWorkflow.Workflow.Definition do
     :inputs,
     :triggers,
     :settings,
+    :signals,
     :channel,
     :steps,
     :error_handling,
@@ -174,6 +191,7 @@ defmodule JidoWorkflow.Workflow.Definition do
           inputs: [Input.t()],
           triggers: [Trigger.t()],
           settings: Settings.t() | nil,
+          signals: Signals.t() | nil,
           channel: Channel.t() | nil,
           steps: [Step.t()],
           error_handling: [map()],
