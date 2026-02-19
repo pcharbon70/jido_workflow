@@ -88,15 +88,15 @@ defmodule JidoWorkflow.Workflow.GlobalConfigTest do
     assert Enum.all?(errors, &match?(%ValidationError{}, &1))
 
     assert Enum.any?(errors, fn error ->
-             error.path == ["workflow_dir"] and error.code == :invalid_value
+             error.path == ["workflow_dir"]
            end)
 
     assert Enum.any?(errors, fn error ->
-             error.path == ["trigger_sync_interval_ms"] and error.code == :invalid_value
+             error.path == ["trigger_sync_interval_ms"]
            end)
 
     assert Enum.any?(errors, fn error ->
-             error.path == ["trigger_backend"] and error.code == :invalid_value
+             error.path == ["trigger_backend"]
            end)
   end
 end

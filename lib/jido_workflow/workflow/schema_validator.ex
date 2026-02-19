@@ -42,6 +42,22 @@ defmodule JidoWorkflow.Workflow.SchemaValidator do
      ]}
   end
 
+  @spec validate_workflow_config(map()) :: validation_result()
+  def validate_workflow_config(attrs) when is_map(attrs) do
+    validate(attrs, &Schema.workflow_config/0, "workflow configuration")
+  end
+
+  def validate_workflow_config(other) do
+    {:error,
+     [
+       %ValidationError{
+         path: [],
+         code: :invalid_type,
+         message: "workflow configuration must be a map, got: #{inspect(other)}"
+       }
+     ]}
+  end
+
   defp validate(attrs, schema_fun, subject_name) do
     sanitized_attrs = compact_nils(attrs)
 

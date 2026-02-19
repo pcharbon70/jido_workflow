@@ -6,6 +6,7 @@ defmodule JidoWorkflow.Workflow.GlobalConfig do
   otherwise provided by application environment.
   """
 
+  alias JidoWorkflow.Workflow.SchemaValidator
   alias JidoWorkflow.Workflow.ValidationError
 
   @type backend :: :direct | :strategy
@@ -28,7 +29,8 @@ defmodule JidoWorkflow.Workflow.GlobalConfig do
     if File.exists?(expanded_path) do
       with {:ok, contents} <- File.read(expanded_path),
            {:ok, decoded} <- Jason.decode(contents),
-           {:ok, map} <- ensure_map(decoded) do
+           {:ok, map} <- ensure_map(decoded),
+           :ok <- SchemaValidator.validate_workflow_config(map) do
         normalize(map, Path.dirname(expanded_path))
       else
         {:error, errors} when is_list(errors) ->

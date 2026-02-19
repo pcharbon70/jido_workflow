@@ -11,6 +11,7 @@ defmodule JidoWorkflow.Workflow.Schema do
 
   @workflow_definition_schema_path "priv/schemas/workflow_definition.schema.json"
   @triggers_schema_path "priv/schemas/triggers.schema.json"
+  @workflow_config_schema_path "priv/schemas/workflow_config.schema.json"
 
   @builtin_step_definitions %{
     "action" => "action_step",
@@ -63,6 +64,11 @@ defmodule JidoWorkflow.Workflow.Schema do
          %{"enum" => trigger_types}
        )}
     end
+  end
+
+  @spec workflow_config() :: {:ok, schema()} | {:error, term()}
+  def workflow_config do
+    load_schema(@workflow_config_schema_path)
   end
 
   defp load_schema(relative_path) do
