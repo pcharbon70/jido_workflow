@@ -152,7 +152,7 @@ defmodule JidoWorkflow.Workflow.Engine do
          run_store,
          opts
        ) do
-    workflow_context = workflow_runtime_context(compiled, workflow_id, run_id, opts)
+    workflow_context = workflow_runtime_context(compiled, workflow_id, run_id, backend, opts)
 
     state = %{
       "inputs" => Map.put(inputs, @workflow_context_input_key, workflow_context),
@@ -647,12 +647,13 @@ defmodule JidoWorkflow.Workflow.Engine do
     end
   end
 
-  defp workflow_runtime_context(compiled, workflow_id, run_id, opts) do
+  defp workflow_runtime_context(compiled, workflow_id, run_id, backend, opts) do
     signal_policy = compiled_signal_policy(compiled)
 
     %{
       "workflow_id" => workflow_id,
       "run_id" => run_id,
+      "backend" => Atom.to_string(backend),
       "bus" => Keyword.get(opts, :bus, Broadcaster.default_bus()),
       "source" => signal_source(signal_policy),
       "signal_topic" => signal_topic(signal_policy),
@@ -734,6 +735,8 @@ defmodule JidoWorkflow.Workflow.Engine do
     |> ArgumentResolver.normalize_state()
     |> get_in(["inputs", @workflow_context_input_key, "backend"])
     |> case do
+      :strategy -> :strategy
+      :direct -> :direct
       "strategy" -> :strategy
       "direct" -> :direct
       _ -> nil
