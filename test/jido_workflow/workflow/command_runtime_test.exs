@@ -200,6 +200,87 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "workflow_not_available")
   end
 
+  test "emits start rejected when requested backend is invalid", context do
+    write_workflow(context.tmp_dir, "command_flow")
+
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "command_flow",
+                   "run_id" => "run_invalid_backend",
+                   "backend" => "invalid",
+                   "inputs" => %{"value" => "hello"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.rejected",
+                      data: %{
+                        "workflow_id" => "command_flow",
+                        "run_id" => "run_invalid_backend",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "missing_or_invalid")
+    assert String.contains?(reason, "backend")
+    assert {:error, :not_found} = RunStore.get("run_invalid_backend", context.run_store)
+    refute_receive {:signal, %Signal{type: "workflow.run.started"}}, 200
+  end
+
+  test "emits start rejected when requested run_id already exists", context do
+    write_workflow(context.tmp_dir, "command_flow")
+
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert :ok =
+             RunStore.record_completed(
+               "run_existing",
+               %{"echo" => "old"},
+               %{workflow_id: "command_flow", backend: :direct, inputs: %{"value" => "old"}},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "command_flow",
+                   "run_id" => "run_existing",
+                   "inputs" => %{"value" => "hello"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.rejected",
+                      data: %{
+                        "workflow_id" => "command_flow",
+                        "run_id" => "run_existing",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "run_id_already_exists")
+
+    assert {:ok, run} = RunStore.get("run_existing", context.run_store)
+    assert run.status == :completed
+    assert run.result == %{"echo" => "old"}
+    refute_receive {:signal, %Signal{type: "workflow.run.started"}}, 200
+  end
+
   test "routes pause/resume/cancel command signals through run controls", context do
     assert :ok =
              RunStore.record_started(
