@@ -172,5 +172,118 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
                error.path == ["signals", "unexpected_signal_key"] and error.code == :unknown_key
              end)
     end
+
+    test "rejects unknown trigger keys" do
+      attrs = %{
+        "name" => "unknown_trigger_key_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "manual",
+            "command" => "/workflow:unknown_trigger_key_flow",
+            "unexpected_trigger_key" => true
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "unexpected_trigger_key"] and
+                 error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown step keys" do
+      attrs = %{
+        "name" => "unknown_step_key_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "JidoCode.Actions.ParseElixirFile",
+            "unexpected_step_key" => true
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "unexpected_step_key"] and error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown settings keys" do
+      attrs = %{
+        "name" => "unknown_settings_key_flow",
+        "version" => "1.0.0",
+        "settings" => %{
+          "max_concurrency" => 2,
+          "unexpected_settings_key" => true
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["settings", "unexpected_settings_key"] and
+                 error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown retry_policy keys" do
+      attrs = %{
+        "name" => "unknown_retry_policy_key_flow",
+        "version" => "1.0.0",
+        "settings" => %{
+          "retry_policy" => %{
+            "max_retries" => 1,
+            "unexpected_retry_policy_key" => true
+          }
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["settings", "retry_policy", "unexpected_retry_policy_key"] and
+                 error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown input and return keys" do
+      attrs = %{
+        "name" => "unknown_input_return_key_flow",
+        "version" => "1.0.0",
+        "inputs" => [
+          %{
+            "name" => "file_path",
+            "type" => "string",
+            "unexpected_input_key" => true
+          }
+        ],
+        "return" => %{
+          "value" => "file_path",
+          "unexpected_return_key" => true
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["inputs", "0", "unexpected_input_key"] and
+                 error.code == :unknown_key
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["return", "unexpected_return_key"] and error.code == :unknown_key
+             end)
+    end
   end
 end

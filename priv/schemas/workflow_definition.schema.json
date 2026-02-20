@@ -24,6 +24,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "additionalProperties": false,
         "required": ["name", "type"],
         "properties": {
           "name": { "type": "string" },
@@ -40,11 +41,13 @@
     },
     "settings": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "max_concurrency": { "type": "integer", "minimum": 1 },
         "timeout_ms": { "type": "integer", "minimum": 1000 },
         "retry_policy": {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "max_retries": { "type": "integer", "minimum": 0 },
             "backoff": { "enum": ["linear", "exponential", "constant"] },
@@ -77,6 +80,7 @@
     },
     "return": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "value": { "type": "string" },
         "transform": { "type": "string" }
@@ -86,6 +90,7 @@
   "definitions": {
     "trigger": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["type"],
       "properties": {
         "type": { "enum": ["file_system", "git_hook", "signal", "scheduled", "manual"] },

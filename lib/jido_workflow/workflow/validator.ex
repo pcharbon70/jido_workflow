@@ -40,6 +40,31 @@ defmodule JidoWorkflow.Workflow.Validator do
     return
   )
   @signals_keys ~w(topic publish_events)
+  @input_keys ~w(name type required default description)
+  @trigger_keys ~w(type patterns events schedule command debounce_ms)
+  @step_keys ~w(
+    name
+    type
+    module
+    agent
+    workflow
+    callback_signal
+    inputs
+    outputs
+    depends_on
+    async
+    optional
+    mode
+    timeout_ms
+    max_retries
+    pre_actions
+    post_actions
+    condition
+    parallel
+  )
+  @settings_keys ~w(max_concurrency timeout_ms retry_policy on_failure)
+  @retry_policy_keys ~w(max_retries backoff base_delay_ms)
+  @return_keys ~w(value transform)
 
   @spec validate(map()) :: {:ok, Definition.t()} | {:error, [ValidationError.t()]}
   def validate(attrs) when is_map(attrs) do
@@ -130,6 +155,8 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp normalize_input(input, path, errors) when is_map(input) do
+    errors = reject_unknown_keys(input, @input_keys, path, errors)
+
     {name, errors} =
       required_string(input, :name, path ++ ["name"], nil, "name is required", errors)
 
@@ -178,6 +205,8 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp normalize_trigger(trigger, path, trigger_types, errors) when is_map(trigger) do
+    errors = reject_unknown_keys(trigger, @trigger_keys, path, errors)
+
     {type, errors} =
       required_string(trigger, :type, path ++ ["type"], nil, "type is required", errors)
 
@@ -228,6 +257,8 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp normalize_step(step, path, step_types, errors) when is_map(step) do
+    errors = reject_unknown_keys(step, @step_keys, path, errors)
+
     {name, errors} =
       required_string(step, :name, path ++ ["name"], nil, "name is required", errors)
 
@@ -322,6 +353,8 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp validate_settings(nil, _path, errors), do: {nil, errors}
 
   defp validate_settings(settings, path, errors) when is_map(settings) do
+    errors = reject_unknown_keys(settings, @settings_keys, path, errors)
+
     {max_concurrency, errors} =
       optional_integer(settings, :max_concurrency, path ++ ["max_concurrency"], errors)
 
@@ -373,6 +406,8 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp validate_retry_policy(nil, _path, errors), do: {nil, errors}
 
   defp validate_retry_policy(policy, path, errors) when is_map(policy) do
+    errors = reject_unknown_keys(policy, @retry_policy_keys, path, errors)
+
     {max_retries, errors} =
       optional_integer(policy, :max_retries, path ++ ["max_retries"], errors)
 
@@ -457,6 +492,8 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp validate_return(nil, _path, errors), do: {nil, errors}
 
   defp validate_return(return_config, path, errors) when is_map(return_config) do
+    errors = reject_unknown_keys(return_config, @return_keys, path, errors)
+
     {value, errors} = optional_string(return_config, :value, path ++ ["value"], errors)
     transform = get(return_config, :transform)
 
