@@ -68,6 +68,19 @@ defmodule JidoWorkflow.Workflow.EngineTestActions.Slow do
   end
 end
 
+defmodule JidoWorkflow.Workflow.EngineTestActions.CaptureBackend do
+  use Jido.Action,
+    name: "engine_capture_backend",
+    schema: [
+      workflow: [type: :any, required: true]
+    ]
+
+  @impl true
+  def run(%{workflow: workflow}, _context) do
+    {:ok, %{"backend" => workflow["backend"] || workflow[:backend]}}
+  end
+end
+
 defmodule JidoWorkflow.Workflow.EngineTest do
   use ExUnit.Case, async: false
 
@@ -82,6 +95,24 @@ defmodule JidoWorkflow.Workflow.EngineTest do
   alias JidoWorkflow.Workflow.Engine
   alias JidoWorkflow.Workflow.RunStore
   alias JidoWorkflow.Workflow.ValidationError
+
+  test "execute_compiled/3 exposes runtime backend in workflow context inputs" do
+    definition =
+      base_definition([
+        %DefinitionStep{
+          name: "capture_backend",
+          type: "action",
+          module: "JidoWorkflow.Workflow.EngineTestActions.CaptureBackend",
+          inputs: %{"workflow" => "`input:__workflow`"},
+          depends_on: []
+        }
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} = Engine.execute_compiled(compiled, %{}, backend: :direct)
+    assert execution.result["results"]["capture_backend"]["backend"] == "direct"
+  end
 
   test "execute_compiled/3 executes workflow and projects configured return value (direct backend)" do
     bus = start_test_bus()
