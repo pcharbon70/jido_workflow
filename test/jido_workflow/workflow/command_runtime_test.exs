@@ -1142,6 +1142,58 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert run_after_resume.status in [:running, :completed]
   end
 
+  test "stops in-flight run tasks when command runtime terminates", context do
+    write_strategy_workflow(context.tmp_dir, "runtime_shutdown_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    run_id = "run_runtime_shutdown_1"
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "runtime_shutdown_flow",
+                   "backend" => "direct",
+                   "run_id" => run_id,
+                   "inputs" => %{"value" => "hello", "delay_ms" => 2_000}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.accepted",
+                      data: %{"workflow_id" => "runtime_shutdown_flow", "run_id" => ^run_id}
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.started",
+                      data: %{"workflow_id" => "runtime_shutdown_flow", "run_id" => ^run_id}
+                    }},
+                   5_000
+
+    assert_eventually(fn ->
+      status = CommandRuntime.status(context.command_runtime)
+      get_in(status, [:run_tasks, run_id, :task_alive?]) == true
+    end)
+
+    monitor_ref = Process.monitor(context.command_runtime)
+    GenServer.stop(context.command_runtime, :normal)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, _pid, :normal}, 5_000
+
+    refute_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{"run_id" => ^run_id}
+                    }},
+                   2_500
+  end
+
   defp write_workflow(dir, workflow_name) do
     markdown = """
     ---

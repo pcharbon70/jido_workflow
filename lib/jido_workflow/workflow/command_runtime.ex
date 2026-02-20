@@ -156,6 +156,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   @impl true
   def terminate(_reason, state) do
+    _ = stop_all_run_tasks(state)
     unsubscribe_all(state.bus, state.subscription_ids)
     :ok
   end
@@ -859,6 +860,12 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             run_id_by_monitor_ref: Map.delete(state.run_id_by_monitor_ref, monitor_ref)
         }
     end
+  end
+
+  defp stop_all_run_tasks(state) do
+    Enum.reduce(Map.keys(state.run_tasks), state, fn run_id, acc ->
+      stop_run_task(acc, run_id)
+    end)
   end
 
   defp unregister_run_task(state, run_id) do
