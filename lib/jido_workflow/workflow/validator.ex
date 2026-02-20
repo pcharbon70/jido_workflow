@@ -26,11 +26,27 @@ defmodule JidoWorkflow.Workflow.Validator do
   @on_failure_types ~w(compensate halt continue)
   @agent_modes ~w(sync async)
   @publish_events ~w(step_started step_completed step_failed workflow_complete agent_state)
+  @definition_keys ~w(
+    name
+    version
+    description
+    enabled
+    inputs
+    triggers
+    settings
+    signals
+    steps
+    error_handling
+    return
+  )
+  @signals_keys ~w(topic publish_events)
 
   @spec validate(map()) :: {:ok, Definition.t()} | {:error, [ValidationError.t()]}
   def validate(attrs) when is_map(attrs) do
+    errors = reject_unknown_keys(attrs, @definition_keys, [], [])
+
     {name, errors} =
-      required_string(attrs, :name, ["name"], @name_regex, "must match ^[a-z][a-z0-9_]*$", [])
+      required_string(attrs, :name, ["name"], @name_regex, "must match ^[a-z][a-z0-9_]*$", errors)
 
     {version, errors} =
       required_string(
@@ -401,6 +417,7 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp validate_signals(nil, _path, errors), do: {nil, errors}
 
   defp validate_signals(signals, path, errors) when is_map(signals) do
+    errors = reject_unknown_keys(signals, @signals_keys, path, errors)
     {topic, errors} = optional_string(signals, :topic, path ++ ["topic"], errors)
 
     {publish_events, errors} =
@@ -557,4 +574,20 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp get(attrs, key, default) do
     Map.get(attrs, key, Map.get(attrs, Atom.to_string(key), default))
   end
+
+  defp reject_unknown_keys(attrs, allowed_keys, path, errors)
+       when is_map(attrs) and is_list(allowed_keys) do
+    attrs
+    |> Map.keys()
+    |> Enum.map(&normalize_key/1)
+    |> Enum.reject(&(&1 in allowed_keys))
+    |> Enum.sort()
+    |> Enum.reduce(errors, fn key, acc ->
+      error(acc, path ++ [key], :unknown_key, "unknown key: #{key}")
+    end)
+  end
+
+  defp normalize_key(key) when is_binary(key), do: key
+  defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_key(key), do: to_string(key)
 end
