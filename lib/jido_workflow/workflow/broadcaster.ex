@@ -1,8 +1,6 @@
 defmodule JidoWorkflow.Workflow.Broadcaster do
   @moduledoc """
   Emits workflow lifecycle events as Jido signals.
-
-  This replaces Phoenix channel broadcasting with signal-native pub/sub.
   """
 
   alias Jido.Signal

@@ -7,7 +7,6 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
   alias JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
-  alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
   alias JidoWorkflow.Workflow.Definition.Input, as: DefinitionInput
   alias JidoWorkflow.Workflow.Definition.Signals, as: DefinitionSignals
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
@@ -30,15 +29,6 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert compiled.signals.topic == "workflow:code_review"
 
     assert compiled.signals.publish_events == [
-             "step_started",
-             "step_completed",
-             "step_failed",
-             "workflow_complete"
-           ]
-
-    assert compiled.channel.topic == "workflow:code_review"
-
-    assert compiled.channel.broadcast_events == [
              "step_started",
              "step_completed",
              "step_failed",
@@ -122,19 +112,17 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
            } = Workflow.get_component(compiled.workflow, "security_scan")
   end
 
-  test "compile/1 includes channel configuration for programmatic definitions" do
+  test "compile/1 includes programmatic signal policy for workflow_complete" do
     definition =
       base_definition(
         [step("security_scan", type: "agent", callback_signal: "security.scan.complete")],
-        channel: %DefinitionChannel{
+        signals: %DefinitionSignals{
           topic: "workflow:security",
-          broadcast_events: ["workflow_complete"]
+          publish_events: ["workflow_complete"]
         }
       )
 
     assert {:ok, compiled} = Compiler.compile(definition)
-    assert compiled.channel.topic == "workflow:security"
-    assert compiled.channel.broadcast_events == ["workflow_complete"]
     assert compiled.signals.topic == "workflow:security"
     assert compiled.signals.publish_events == ["workflow_complete"]
   end
@@ -152,8 +140,6 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
     assert {:ok, compiled} = Compiler.compile(definition)
     assert compiled.signals.topic == "workflow:signals_security"
     assert compiled.signals.publish_events == ["step_started"]
-    assert compiled.channel.topic == "workflow:signals_security"
-    assert compiled.channel.broadcast_events == ["step_started"]
   end
 
   test "compile/1 includes normalized workflow input schema" do
@@ -228,7 +214,6 @@ defmodule JidoWorkflow.Workflow.CompilerTest do
       triggers: [],
       settings: nil,
       signals: Keyword.get(opts, :signals),
-      channel: Keyword.get(opts, :channel),
       steps: steps,
       error_handling: [],
       return: nil
