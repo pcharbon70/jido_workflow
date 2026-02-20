@@ -657,10 +657,7 @@ defmodule JidoWorkflow.Workflow.Engine do
       "bus" => Keyword.get(opts, :bus, Broadcaster.default_bus()),
       "source" => signal_source(signal_policy),
       "signal_topic" => signal_topic(signal_policy),
-      "publish_events" => signal_publish_events(signal_policy),
-      # Legacy keys used by existing step executors/tests.
-      "channel_topic" => signal_topic(signal_policy),
-      "broadcast_events" => signal_publish_events(signal_policy)
+      "publish_events" => signal_publish_events(signal_policy)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
