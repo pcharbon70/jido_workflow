@@ -23,6 +23,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   """
 
   use GenServer
+  require Logger
 
   alias Jido.Signal
   alias Jido.Signal.Bus
@@ -791,7 +792,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     backend = resolve_backend(request.backend || state.backend)
 
     with :ok <- ensure_run_not_registered(state, run_id),
-         :ok <- ensure_run_id_available(state.run_store, run_id),
+         :ok <- ensure_run_id_available(state.run_store, run_id, not is_nil(request.run_id)),
          {:ok, pid} <- start_run_task_process(request, run_id, backend, state) do
       monitor_ref = Process.monitor(pid)
 
@@ -821,14 +822,24 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
-  defp ensure_run_id_available(run_store, run_id) do
+  defp ensure_run_id_available(run_store, run_id, run_id_provided?)
+       when is_binary(run_id) and is_boolean(run_id_provided?) do
     case RunStore.get(run_id, run_store) do
       {:ok, _run} -> {:error, {:run_id_already_exists, run_id}}
       {:error, :not_found} -> :ok
     end
   catch
     :exit, reason ->
-      {:error, {:run_store_unavailable, reason}}
+      if run_id_provided? do
+        {:error, {:run_store_unavailable, reason}}
+      else
+        Logger.warning(
+          "Run store unavailable while checking generated run_id #{run_id}; proceeding " <>
+            "without persisted uniqueness check: #{inspect(reason)}"
+        )
+
+        :ok
+      end
   end
 
   defp start_run_task_process(request, run_id, backend, state) do
