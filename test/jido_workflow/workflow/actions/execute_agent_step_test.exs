@@ -300,7 +300,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteAgentStepTest do
       "run_id" => "run_agent_1",
       "bus" => bus,
       "source" => "/jido_workflow/workflow/workflow%3Aagent_test",
-      "broadcast_events" => events
+      "publish_events" => events
     }
   end
 

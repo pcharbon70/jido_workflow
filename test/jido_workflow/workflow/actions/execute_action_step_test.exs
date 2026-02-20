@@ -147,7 +147,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStepTest do
                     }}
   end
 
-  test "suppresses step failed broadcast when broadcast policy excludes step_failed" do
+  test "suppresses step failed broadcast when publish policy excludes step_failed" do
     bus = start_test_bus()
 
     assert {:ok, _sub_id} =
@@ -174,15 +174,88 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteActionStepTest do
     refute_receive {:signal, %Signal{type: "workflow.step.failed"}}
   end
 
-  defp workflow_context(bus, events) do
+  test "prefers publish_events over legacy broadcast_events when both are provided" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    step = %{
+      "name" => "fail_step",
+      "type" => "action",
+      "module" => "JidoWorkflow.TestActions.FailAction",
+      "inputs" => %{}
+    }
+
+    params = %{
+      "inputs" => %{
+        "__workflow" =>
+          workflow_context(bus, ["step_started"],
+            broadcast_events: ["step_started", "step_failed"]
+          )
+      },
+      "results" => %{},
+      step: step
+    }
+
+    assert {:error, {:action_failed, _reason}} = ExecuteActionStep.run(params, %{})
+
+    assert_receive {:signal, %Signal{type: "workflow.step.started"}}
+    refute_receive {:signal, %Signal{type: "workflow.step.failed"}}
+  end
+
+  test "falls back to legacy broadcast_events when publish_events is not present" do
+    bus = start_test_bus()
+
+    assert {:ok, _sub_id} =
+             Bus.subscribe(bus, "workflow.step.*", dispatch: {:pid, target: self()})
+
+    step = %{
+      "name" => "fail_step",
+      "type" => "action",
+      "module" => "JidoWorkflow.TestActions.FailAction",
+      "inputs" => %{}
+    }
+
+    params = %{
+      "inputs" => %{
+        "__workflow" => workflow_context_without_publish(bus, ["step_started", "step_failed"])
+      },
+      "results" => %{},
+      step: step
+    }
+
+    assert {:error, {:action_failed, _reason}} = ExecuteActionStep.run(params, %{})
+
+    assert_receive {:signal, %Signal{type: "workflow.step.started"}}
+    assert_receive {:signal, %Signal{type: "workflow.step.failed"}}
+  end
+
+  defp workflow_context(bus, events, opts \\ []) do
     %{
       "workflow_id" => "action_test_workflow",
       "run_id" => "run_action_1",
       "bus" => bus,
       "source" => "/jido_workflow/workflow/workflow%3Aaction_test",
-      "broadcast_events" => events
+      "publish_events" => events
+    }
+    |> maybe_put_broadcast_events(Keyword.get(opts, :broadcast_events))
+  end
+
+  defp workflow_context_without_publish(bus, broadcast_events) do
+    %{
+      "workflow_id" => "action_test_workflow",
+      "run_id" => "run_action_1",
+      "bus" => bus,
+      "source" => "/jido_workflow/workflow/workflow%3Aaction_test",
+      "broadcast_events" => broadcast_events
     }
   end
+
+  defp maybe_put_broadcast_events(context, nil), do: context
+
+  defp maybe_put_broadcast_events(context, events),
+    do: Map.put(context, "broadcast_events", events)
 
   defp start_test_bus do
     bus = String.to_atom("jido_workflow_action_test_bus_#{System.unique_integer([:positive])}")

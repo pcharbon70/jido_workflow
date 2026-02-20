@@ -213,8 +213,8 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteSubWorkflowStep do
     context = workflow_context(state)
 
     events =
-      fetch_context_value(context, "broadcast_events") ||
-        fetch_context_value(context, "publish_events")
+      fetch_context_value(context, "publish_events") ||
+        fetch_context_value(context, "broadcast_events")
 
     case events do
       nil ->
