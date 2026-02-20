@@ -100,6 +100,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
           "workflow.run.get.*",
           "workflow.run.list.*",
           "workflow.runtime.status.*",
+          "workflow.definition.list.*",
+          "workflow.definition.get.*",
+          "workflow.registry.refresh.*",
           "workflow.trigger.manual.*",
           "workflow.trigger.refresh.*",
           "workflow.trigger.sync.*",
@@ -399,7 +402,120 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     }},
                    5_000
 
-    assert subscription_count >= 11
+    assert subscription_count >= 14
+  end
+
+  test "returns workflow metadata for workflow.definition.list.requested", context do
+    write_workflow(context.tmp_dir, "catalog_flow")
+    write_disabled_workflow(context.tmp_dir, "catalog_disabled_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.list.requested",
+                 %{"include_disabled" => false},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.list.accepted",
+                      data: %{"count" => 1, "definitions" => [definition]}
+                    }},
+                   5_000
+
+    assert definition["id"] == "catalog_flow"
+    assert definition["enabled"] == true
+  end
+
+  test "returns workflow definition for workflow.definition.get.requested", context do
+    write_workflow(context.tmp_dir, "catalog_get_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.get.requested",
+                 %{"workflow_id" => "catalog_get_flow"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.get.accepted",
+                      data: %{
+                        "workflow_id" => "catalog_get_flow",
+                        "definition" => definition
+                      }
+                    }},
+                   5_000
+
+    assert definition["name"] == "catalog_get_flow"
+    assert is_list(definition["steps"])
+  end
+
+  test "rejects workflow.definition.get.requested for unknown workflow", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.get.requested",
+                 %{"workflow_id" => "missing_flow"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.get.rejected",
+                      data: %{"workflow_id" => "missing_flow", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
+  end
+
+  test "handles workflow.registry.refresh.requested", context do
+    write_workflow(context.tmp_dir, "registry_refresh_flow")
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.registry.refresh.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.refresh.accepted",
+                      data: %{
+                        "summary" => %{
+                          "workflow_dir" => _workflow_dir,
+                          "total" => total
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert total >= 1
+  end
+
+  test "rejects workflow.registry.refresh.requested when registry is unavailable", context do
+    GenServer.stop(context.workflow_registry, :normal)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.registry.refresh.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.refresh.rejected",
+                      data: %{"reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "workflow_registry_unavailable")
   end
 
   test "handles workflow.trigger.refresh.requested via trigger runtime", context do
@@ -749,6 +865,33 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     name: #{workflow_name}
     version: "1.0.0"
     enabled: true
+    ---
+
+    # #{workflow_name}
+
+    ## Steps
+
+    ### echo
+    - **type**: action
+    - **module**: JidoWorkflow.Workflow.CommandRuntimeTestActions.Echo
+    - **inputs**:
+      - value: `input:value`
+
+    ## Return
+    - **value**: echo
+    """
+
+    path = Path.join(dir, "#{workflow_name}.md")
+    File.write!(path, markdown)
+    path
+  end
+
+  defp write_disabled_workflow(dir, workflow_name) do
+    markdown = """
+    ---
+    name: #{workflow_name}
+    version: "1.0.0"
+    enabled: false
     ---
 
     # #{workflow_name}

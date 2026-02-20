@@ -7,6 +7,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   - `workflow.run.pause.requested`
   - `workflow.run.resume.requested`
   - `workflow.run.cancel.requested`
+  - `workflow.definition.list.requested`
+  - `workflow.definition.get.requested`
+  - `workflow.registry.refresh.requested`
   - `workflow.trigger.manual.requested`
   - `workflow.trigger.refresh.requested`
   - `workflow.trigger.sync.requested`
@@ -31,6 +34,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @get_requested "workflow.run.get.requested"
   @list_requested "workflow.run.list.requested"
   @runtime_status_requested "workflow.runtime.status.requested"
+  @definition_list_requested "workflow.definition.list.requested"
+  @definition_get_requested "workflow.definition.get.requested"
+  @registry_refresh_requested "workflow.registry.refresh.requested"
   @manual_trigger_requested "workflow.trigger.manual.requested"
   @trigger_refresh_requested "workflow.trigger.refresh.requested"
   @trigger_sync_requested "workflow.trigger.sync.requested"
@@ -49,6 +55,12 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @list_accepted "workflow.run.list.accepted"
   @list_rejected "workflow.run.list.rejected"
   @runtime_status_accepted "workflow.runtime.status.accepted"
+  @definition_list_accepted "workflow.definition.list.accepted"
+  @definition_list_rejected "workflow.definition.list.rejected"
+  @definition_get_accepted "workflow.definition.get.accepted"
+  @definition_get_rejected "workflow.definition.get.rejected"
+  @registry_refresh_accepted "workflow.registry.refresh.accepted"
+  @registry_refresh_rejected "workflow.registry.refresh.rejected"
   @manual_trigger_accepted "workflow.trigger.manual.accepted"
   @manual_trigger_rejected "workflow.trigger.manual.rejected"
   @trigger_refresh_accepted "workflow.trigger.refresh.accepted"
@@ -165,6 +177,18 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   def handle_info({:signal, %Signal{type: @runtime_status_requested} = signal}, state) do
     handle_runtime_status_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @definition_list_requested} = signal}, state) do
+    handle_definition_list_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @definition_get_requested} = signal}, state) do
+    handle_definition_get_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @registry_refresh_requested} = signal}, state) do
+    handle_registry_refresh_requested(signal, state)
   end
 
   def handle_info({:signal, %Signal{type: @manual_trigger_requested} = signal}, state) do
@@ -536,6 +560,87 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     {:noreply, state}
   end
 
+  defp handle_definition_list_requested(signal, state) do
+    with {:ok, opts} <- normalize_definition_list_opts(signal.data),
+         {:ok, definitions} <- list_workflow_definitions(state.workflow_registry, opts) do
+      _ =
+        publish_command_response(
+          state.bus,
+          @definition_list_accepted,
+          %{"definitions" => definitions, "count" => length(definitions)},
+          signal
+        )
+
+      {:noreply, state}
+    else
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @definition_list_rejected,
+            %{"reason" => format_reason(reason)},
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_definition_get_requested(signal, state) do
+    with {:ok, workflow_id} <- normalize_required_workflow_id(signal.data),
+         {:ok, definition} <- get_workflow_definition(state.workflow_registry, workflow_id) do
+      _ =
+        publish_command_response(
+          state.bus,
+          @definition_get_accepted,
+          %{"workflow_id" => workflow_id, "definition" => definition},
+          signal
+        )
+
+      {:noreply, state}
+    else
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @definition_get_rejected,
+            %{
+              "workflow_id" => fetch(signal.data, "workflow_id"),
+              "reason" => format_reason(reason)
+            },
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_registry_refresh_requested(signal, state) do
+    case refresh_workflow_registry(state.workflow_registry) do
+      {:ok, summary} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @registry_refresh_accepted,
+            %{"summary" => to_signal_value(summary)},
+            signal
+          )
+
+        {:noreply, state}
+
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @registry_refresh_rejected,
+            %{"reason" => format_reason(reason)},
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
   defp launch_run_task(request, state) do
     run_id = request.run_id || generate_run_id()
     backend = resolve_backend(request.backend || state.backend)
@@ -772,6 +877,41 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp normalize_list_opts(_data), do: {:ok, []}
 
+  defp normalize_definition_list_opts(data) when is_map(data) do
+    with {:ok, include_disabled} <- optional_boolean_filter(data, "include_disabled"),
+         {:ok, include_invalid} <- optional_boolean_filter(data, "include_invalid"),
+         {:ok, limit} <- optional_positive_integer_filter(data, "limit") do
+      {:ok,
+       %{
+         include_disabled: default_true(include_disabled),
+         include_invalid: default_true(include_invalid),
+         limit: limit
+       }}
+    end
+  end
+
+  defp normalize_definition_list_opts(_data) do
+    {:ok, %{include_disabled: true, include_invalid: true, limit: nil}}
+  end
+
+  defp normalize_required_workflow_id(data) when is_map(data) do
+    workflow_id =
+      fetch(data, "workflow_id")
+      |> normalize_optional_binary()
+      |> default_workflow_id(fetch(data, "id"))
+
+    if valid_binary?(workflow_id) do
+      {:ok, workflow_id}
+    else
+      {:error, {:missing_or_invalid, :workflow_id}}
+    end
+  end
+
+  defp normalize_required_workflow_id(_data), do: {:error, {:missing_or_invalid, :workflow_id}}
+
+  defp default_workflow_id(nil, fallback), do: normalize_optional_binary(fallback)
+  defp default_workflow_id(workflow_id, _fallback), do: workflow_id
+
   defp optional_binary_filter(data, key) do
     case fetch(data, key) do
       nil -> {:ok, nil}
@@ -806,6 +946,35 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
     end
   end
+
+  defp optional_boolean_filter(data, key) do
+    case fetch(data, key) do
+      nil ->
+        {:ok, nil}
+
+      value when is_boolean(value) ->
+        {:ok, value}
+
+      value when is_binary(value) ->
+        parse_boolean_filter(value, key)
+
+      _ ->
+        {:error, {:missing_or_invalid, String.to_atom(key)}}
+    end
+  end
+
+  defp parse_boolean_filter(value, key) when is_binary(value) do
+    case String.downcase(value) do
+      "true" -> {:ok, true}
+      "false" -> {:ok, false}
+      "1" -> {:ok, true}
+      "0" -> {:ok, false}
+      _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+    end
+  end
+
+  defp default_true(nil), do: true
+  defp default_true(value) when is_boolean(value), do: value
 
   defp optional_positive_integer_filter(data, key) do
     case fetch(data, key) do
@@ -861,6 +1030,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       @get_requested,
       @list_requested,
       @runtime_status_requested,
+      @definition_list_requested,
+      @definition_get_requested,
+      @registry_refresh_requested,
       @manual_trigger_requested,
       @trigger_refresh_requested,
       @trigger_sync_requested,
@@ -872,6 +1044,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     %{
       bus: state.bus,
       backend: state.backend,
+      workflow_registry: state.workflow_registry,
       trigger_supervisor: state.trigger_supervisor,
       trigger_process_registry: state.trigger_process_registry,
       trigger_runtime: state.trigger_runtime,
@@ -1016,6 +1189,43 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
+  defp list_workflow_definitions(workflow_registry, opts) do
+    items =
+      WorkflowRegistry.list(
+        workflow_registry,
+        include_disabled: opts.include_disabled,
+        include_invalid: opts.include_invalid
+      )
+      |> maybe_limit_items(opts.limit)
+
+    {:ok, Enum.map(items, &to_signal_value/1)}
+  catch
+    :exit, reason ->
+      {:error, {:workflow_registry_unavailable, reason}}
+  end
+
+  defp get_workflow_definition(workflow_registry, workflow_id) do
+    case WorkflowRegistry.get_definition(workflow_id, workflow_registry) do
+      {:ok, definition} -> {:ok, to_signal_value(definition)}
+      {:error, reason} -> {:error, reason}
+    end
+  catch
+    :exit, reason ->
+      {:error, {:workflow_registry_unavailable, reason}}
+  end
+
+  defp refresh_workflow_registry(workflow_registry) do
+    WorkflowRegistry.refresh(workflow_registry)
+  catch
+    :exit, reason ->
+      {:error, {:workflow_registry_unavailable, reason}}
+  end
+
+  defp maybe_limit_items(items, nil), do: items
+
+  defp maybe_limit_items(items, limit) when is_integer(limit) and limit > 0,
+    do: Enum.take(items, limit)
+
   defp refresh_trigger_runtime(trigger_runtime) do
     TriggerRuntime.refresh(trigger_runtime)
   catch
@@ -1104,6 +1314,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp to_signal_value(value) when is_float(value), do: value
   defp to_signal_value(value) when is_atom(value), do: Atom.to_string(value)
   defp to_signal_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp to_signal_value(%_{} = value), do: value |> Map.from_struct() |> to_signal_value()
 
   defp to_signal_value(value) when is_map(value) do
     value
@@ -1118,7 +1329,13 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp valid_binary?(value), do: is_binary(value) and value != ""
 
   defp fetch(map, key) when is_map(map) and is_binary(key) do
-    Map.get(map, key) || fetch_atom_key(map, key)
+    case Map.fetch(map, key) do
+      {:ok, value} ->
+        value
+
+      :error ->
+        fetch_atom_key(map, key)
+    end
   end
 
   defp fetch(_map, _key), do: nil
