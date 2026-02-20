@@ -583,6 +583,76 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     assert match?({:invalid_inputs, [_ | _]}, run.error)
   end
 
+  test "execute_compiled/3 completes when run_store is unavailable during lifecycle recording" do
+    run_store = start_test_run_store()
+    run_store_pid = Process.whereis(run_store)
+    assert is_pid(run_store_pid)
+    :ok = GenServer.stop(run_store_pid, :normal)
+
+    definition =
+      base_definition([
+        %DefinitionStep{
+          name: "parse_file",
+          type: "action",
+          module: "JidoWorkflow.Workflow.EngineTestActions.ParseFile",
+          inputs: %{"file_path" => "`input:file_path`"},
+          depends_on: []
+        }
+      ])
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:ok, execution} =
+             Engine.execute_compiled(compiled, %{"file_path" => "lib/example.ex"},
+               backend: :direct,
+               run_store: run_store
+             )
+
+    assert execution.status == :completed
+    assert execution.workflow_id == "engine_example"
+    assert execution.result["results"]["parse_file"]["ast"] == "ast:lib/example.ex"
+  end
+
+  test "execute_compiled/3 returns invalid input errors when run_store is unavailable" do
+    run_store = start_test_run_store()
+    run_store_pid = Process.whereis(run_store)
+    assert is_pid(run_store_pid)
+    :ok = GenServer.stop(run_store_pid, :normal)
+
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "slow_step",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.Slow",
+            inputs: %{},
+            depends_on: []
+          }
+        ],
+        inputs: [
+          %DefinitionInput{
+            name: "file_path",
+            type: "string",
+            required: true,
+            default: nil,
+            description: nil
+          }
+        ]
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+
+    assert {:error,
+            {:invalid_inputs,
+             [%ValidationError{path: ["inputs", "file_path"], code: :required} | _]}} =
+             Engine.execute_compiled(compiled, %{},
+               backend: :direct,
+               run_store: run_store,
+               run_id: "run_store_unavailable_invalid_inputs"
+             )
+  end
+
   test "get_run/2 and list_runs/1 delegate to configured run store" do
     run_store = start_test_run_store()
 

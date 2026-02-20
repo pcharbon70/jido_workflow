@@ -666,52 +666,59 @@ defmodule JidoWorkflow.Workflow.Engine do
   end
 
   defp maybe_record_started_run(run_store, run_id, workflow_id, backend, inputs) do
-    RunStore.record_started(
-      %{
-        run_id: run_id,
-        workflow_id: workflow_id,
-        backend: backend,
-        inputs: inputs
-      },
-      run_store
-    )
-  rescue
-    exception ->
-      Logger.warning("Failed to record started run #{run_id}: #{Exception.message(exception)}")
-      :ok
+    maybe_record_run_store("started", run_id, fn ->
+      RunStore.record_started(
+        %{
+          run_id: run_id,
+          workflow_id: workflow_id,
+          backend: backend,
+          inputs: inputs
+        },
+        run_store
+      )
+    end)
   end
 
   defp maybe_record_completed_run(run_store, run_id, workflow_id, backend, inputs, result) do
-    RunStore.record_completed(
-      run_id,
-      result,
-      %{
-        workflow_id: workflow_id,
-        backend: backend,
-        inputs: inputs
-      },
-      run_store
-    )
-  rescue
-    exception ->
-      Logger.warning("Failed to record completed run #{run_id}: #{Exception.message(exception)}")
-      :ok
+    maybe_record_run_store("completed", run_id, fn ->
+      RunStore.record_completed(
+        run_id,
+        result,
+        %{
+          workflow_id: workflow_id,
+          backend: backend,
+          inputs: inputs
+        },
+        run_store
+      )
+    end)
   end
 
   defp maybe_record_failed_run(run_store, run_id, workflow_id, backend, inputs, error) do
-    RunStore.record_failed(
-      run_id,
-      error,
-      %{
-        workflow_id: workflow_id,
-        backend: backend,
-        inputs: inputs
-      },
-      run_store
-    )
+    maybe_record_run_store("failed", run_id, fn ->
+      RunStore.record_failed(
+        run_id,
+        error,
+        %{
+          workflow_id: workflow_id,
+          backend: backend,
+          inputs: inputs
+        },
+        run_store
+      )
+    end)
+  end
+
+  defp maybe_record_run_store(status, run_id, fun)
+       when is_binary(status) and is_function(fun, 0) do
+    fun.()
   rescue
     exception ->
-      Logger.warning("Failed to record failed run #{run_id}: #{Exception.message(exception)}")
+      Logger.warning("Failed to record #{status} run #{run_id}: #{Exception.message(exception)}")
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning("Failed to record #{status} run #{run_id}: #{inspect(reason)}")
       :ok
   end
 
