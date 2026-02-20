@@ -5,8 +5,12 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   Subscribes to reserved command signals and routes them to the workflow engine:
   - `workflow.run.start.requested`
   - `workflow.run.pause.requested`
+  - `workflow.run.step.requested`
   - `workflow.run.resume.requested`
   - `workflow.run.cancel.requested`
+  - `workflow.run.get.requested`
+  - `workflow.run.list.requested`
+  - `workflow.runtime.status.requested`
   - `workflow.definition.list.requested`
   - `workflow.definition.get.requested`
   - `workflow.registry.refresh.requested`
@@ -30,6 +34,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   @start_requested "workflow.run.start.requested"
   @pause_requested "workflow.run.pause.requested"
+  @step_requested "workflow.run.step.requested"
   @resume_requested "workflow.run.resume.requested"
   @cancel_requested "workflow.run.cancel.requested"
   @get_requested "workflow.run.get.requested"
@@ -48,6 +53,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @start_rejected "workflow.run.start.rejected"
   @pause_accepted "workflow.run.pause.accepted"
   @pause_rejected "workflow.run.pause.rejected"
+  @step_accepted "workflow.run.step.accepted"
+  @step_rejected "workflow.run.step.rejected"
   @resume_accepted "workflow.run.resume.accepted"
   @resume_rejected "workflow.run.resume.rejected"
   @cancel_accepted "workflow.run.cancel.accepted"
@@ -161,6 +168,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   def handle_info({:signal, %Signal{type: @pause_requested} = signal}, state) do
     handle_pause_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @step_requested} = signal}, state) do
+    handle_step_requested(signal, state)
   end
 
   def handle_info({:signal, %Signal{type: @resume_requested} = signal}, state) do
@@ -412,6 +423,47 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
           publish_command_response(
             state.bus,
             @pause_rejected,
+            %{
+              "run_id" => fetch(signal.data, "run_id"),
+              "reason" => format_reason(reason)
+            },
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_step_requested(signal, state) do
+    with {:ok, run_id} <- fetch_required_run_id(signal.data),
+         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store),
+         :ok <- ensure_step_status(run),
+         {:ok, runtime_agent_pid} <- fetch_strategy_runtime_agent(state, run_id, run),
+         :ok <-
+           send_runtime_signal(
+             runtime_agent_pid,
+             "runic.step",
+             %{},
+             runtime_source(run_id, "step")
+           ) do
+      _ =
+        publish_command_response(
+          state.bus,
+          @step_accepted,
+          %{
+            "workflow_id" => run.workflow_id,
+            "run_id" => run.run_id
+          },
+          signal
+        )
+
+      {:noreply, state}
+    else
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @step_rejected,
             %{
               "run_id" => fetch(signal.data, "run_id"),
               "reason" => format_reason(reason)
@@ -1062,6 +1114,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     [
       @start_requested,
       @pause_requested,
+      @step_requested,
       @resume_requested,
       @cancel_requested,
       @get_requested,
@@ -1115,6 +1168,32 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       nil -> :ok
       {:error, :run_not_tracked} -> :ok
       {:error, :runtime_agent_unavailable} -> {:error, :runtime_agent_unavailable}
+    end
+  end
+
+  defp ensure_step_status(run) do
+    case run.status do
+      status when status in [:running, :paused] ->
+        :ok
+
+      status ->
+        {:error, {:invalid_transition, status, :step}}
+    end
+  end
+
+  defp fetch_strategy_runtime_agent(state, run_id, run) do
+    case run.backend do
+      :strategy ->
+        case fetch_run_task(state, run_id) do
+          {:ok, run_task} ->
+            fetch_runtime_agent_pid(run_task)
+
+          {:error, :run_not_tracked} ->
+            {:error, :runtime_agent_unavailable}
+        end
+
+      backend ->
+        {:error, {:unsupported_backend, backend}}
     end
   end
 
