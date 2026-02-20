@@ -414,8 +414,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp handle_pause_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
          :ok <- maybe_pause_strategy_runtime(state, run_id),
-         :ok <- Engine.pause(run_id, run_store: state.run_store, bus: state.bus),
-         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store) do
+         :ok <- pause_run(run_id, state),
+         {:ok, run} <- get_run(run_id, state) do
       _ =
         publish_command_response(
           state.bus,
@@ -447,7 +447,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp handle_step_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
-         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store),
+         {:ok, run} <- get_run(run_id, state),
          :ok <- ensure_active_run_status(run),
          {:ok, runtime_agent_pid} <- fetch_strategy_runtime_agent(state, run_id, run),
          :ok <-
@@ -489,7 +489,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp handle_mode_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
          {:ok, mode} <- fetch_required_mode(signal.data),
-         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store),
+         {:ok, run} <- get_run(run_id, state),
          :ok <- ensure_active_run_status(run),
          {:ok, runtime_agent_pid} <- fetch_strategy_runtime_agent(state, run_id, run),
          :ok <-
@@ -535,8 +535,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp handle_resume_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
          :ok <- maybe_resume_strategy_runtime(state, run_id),
-         :ok <- Engine.resume(run_id, run_store: state.run_store, bus: state.bus),
-         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store) do
+         :ok <- resume_run(run_id, state),
+         {:ok, run} <- get_run(run_id, state) do
       _ =
         publish_command_response(
           state.bus,
@@ -570,8 +570,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
          reason <- fetch_cancel_reason(signal.data),
          :ok <- maybe_stop_strategy_runtime(state, run_id),
-         :ok <- Engine.cancel(run_id, run_store: state.run_store, bus: state.bus, reason: reason),
-         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store) do
+         :ok <- cancel_run(run_id, reason, state),
+         {:ok, run} <- get_run(run_id, state) do
       _ =
         publish_command_response(
           state.bus,
@@ -604,7 +604,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp handle_get_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
-         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store) do
+         {:ok, run} <- get_run(run_id, state) do
       _ =
         publish_command_response(
           state.bus,
@@ -634,21 +634,29 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp handle_list_requested(signal, state) do
     case normalize_list_opts(signal.data) do
       {:ok, list_opts} ->
-        runs =
-          list_opts
-          |> Keyword.put(:run_store, state.run_store)
-          |> Engine.list_runs()
-          |> Enum.map(&serialize_run/1)
+        case list_runs(list_opts, state) do
+          {:ok, runs} ->
+            _ =
+              publish_command_response(
+                state.bus,
+                @list_accepted,
+                %{"runs" => Enum.map(runs, &serialize_run/1), "count" => length(runs)},
+                signal
+              )
 
-        _ =
-          publish_command_response(
-            state.bus,
-            @list_accepted,
-            %{"runs" => runs, "count" => length(runs)},
-            signal
-          )
+            {:noreply, state}
 
-        {:noreply, state}
+          {:error, reason} ->
+            _ =
+              publish_command_response(
+                state.bus,
+                @list_rejected,
+                %{"reason" => format_reason(reason)},
+                signal
+              )
+
+            {:noreply, state}
+        end
 
       {:error, reason} ->
         _ =
@@ -1285,9 +1293,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp apply_run_mode_transition(:step, %{status: :running} = run, state) do
-    case Engine.pause(run.run_id, run_store: state.run_store, bus: state.bus) do
+    case pause_run(run.run_id, state) do
       :ok ->
-        Engine.get_run(run.run_id, run_store: state.run_store)
+        get_run(run.run_id, state)
 
       {:error, _reason} = error ->
         error
@@ -1297,9 +1305,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp apply_run_mode_transition(:step, %{status: :paused} = run, _state), do: {:ok, run}
 
   defp apply_run_mode_transition(:auto, %{status: :paused} = run, state) do
-    case Engine.resume(run.run_id, run_store: state.run_store, bus: state.bus) do
+    case resume_run(run.run_id, state) do
       :ok ->
-        Engine.get_run(run.run_id, run_store: state.run_store)
+        get_run(run.run_id, state)
 
       {:error, _reason} = error ->
         error
@@ -1363,6 +1371,41 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       {:ok, run_task} -> {:ok, run_task}
       :error -> {:error, :run_not_tracked}
     end
+  end
+
+  defp pause_run(run_id, state) do
+    Engine.pause(run_id, run_store: state.run_store, bus: state.bus)
+  catch
+    :exit, reason -> {:error, {:run_store_unavailable, reason}}
+  end
+
+  defp resume_run(run_id, state) do
+    Engine.resume(run_id, run_store: state.run_store, bus: state.bus)
+  catch
+    :exit, reason -> {:error, {:run_store_unavailable, reason}}
+  end
+
+  defp cancel_run(run_id, reason, state) do
+    Engine.cancel(run_id, run_store: state.run_store, bus: state.bus, reason: reason)
+  catch
+    :exit, exit_reason -> {:error, {:run_store_unavailable, exit_reason}}
+  end
+
+  defp get_run(run_id, state) do
+    Engine.get_run(run_id, run_store: state.run_store)
+  catch
+    :exit, reason -> {:error, {:run_store_unavailable, reason}}
+  end
+
+  defp list_runs(list_opts, state) do
+    runs =
+      list_opts
+      |> Keyword.put(:run_store, state.run_store)
+      |> Engine.list_runs()
+
+    {:ok, runs}
+  catch
+    :exit, reason -> {:error, {:run_store_unavailable, reason}}
   end
 
   defp fetch_runtime_agent_pid(%{runtime_agent_pid: runtime_agent_pid})
