@@ -26,8 +26,14 @@ defmodule JidoWorkflow.Workflow.Triggers.Manual do
   def start_link(config) when is_map(config) do
     process_registry = fetch(config, "process_registry") || default_process_registry()
     id = fetch(config, "id")
+    workflow_id = fetch(config, "workflow_id")
+    command = normalize_command(fetch(config, "command"), workflow_id)
 
-    GenServer.start_link(__MODULE__, config, name: via_tuple(id, process_registry))
+    GenServer.start_link(
+      __MODULE__,
+      config,
+      name: via_tuple(id, process_registry, workflow_id, command)
+    )
   end
 
   @spec trigger(GenServer.server(), map()) ::
@@ -40,7 +46,7 @@ defmodule JidoWorkflow.Workflow.Triggers.Manual do
   def init(config) do
     id = fetch(config, "id")
     workflow_id = fetch(config, "workflow_id")
-    command = fetch(config, "command")
+    command = normalize_command(fetch(config, "command"), workflow_id)
 
     workflow_registry =
       fetch(config, "workflow_registry") || fetch(config, "registry") || WorkflowRegistry
@@ -90,6 +96,16 @@ defmodule JidoWorkflow.Workflow.Triggers.Manual do
   defp normalize_backend(value) when value in [:direct, :strategy], do: value
   defp normalize_backend(_value), do: nil
 
+  defp normalize_command(command, _workflow_id) when is_binary(command) and command != "",
+    do: command
+
+  defp normalize_command(_command, workflow_id)
+       when is_binary(workflow_id) and workflow_id != "" do
+    "/workflow:#{workflow_id}"
+  end
+
+  defp normalize_command(_command, _workflow_id), do: nil
+
   defp require_binary(value, _field) when is_binary(value) and value != "", do: :ok
   defp require_binary(_value, field), do: {:error, {:invalid_config, field}}
 
@@ -97,8 +113,14 @@ defmodule JidoWorkflow.Workflow.Triggers.Manual do
     DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
   end
 
-  defp via_tuple(id, process_registry) do
-    {:via, Elixir.Registry, {process_registry, id}}
+  defp via_tuple(id, process_registry, workflow_id, command) do
+    metadata = %{
+      trigger_type: "manual",
+      workflow_id: workflow_id,
+      command: command
+    }
+
+    {:via, Elixir.Registry, {process_registry, id, metadata}}
   end
 
   defp default_process_registry do
