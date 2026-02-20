@@ -42,7 +42,7 @@ defmodule JidoWorkflow.Workflow.Validator do
   @signals_keys ~w(topic publish_events)
   @input_keys ~w(name type required default description)
   @trigger_keys ~w(type patterns events schedule command debounce_ms)
-  @step_keys ~w(
+  @step_generic_keys ~w(
     name
     type
     module
@@ -61,6 +61,52 @@ defmodule JidoWorkflow.Workflow.Validator do
     post_actions
     condition
     parallel
+  )
+  @action_step_keys ~w(
+    name
+    type
+    module
+    inputs
+    outputs
+    depends_on
+    async
+    optional
+    timeout_ms
+    max_retries
+  )
+  @agent_step_keys ~w(
+    name
+    type
+    agent
+    callback_signal
+    inputs
+    depends_on
+    mode
+    timeout_ms
+    pre_actions
+    post_actions
+  )
+  @skill_step_keys ~w(
+    name
+    type
+    module
+    inputs
+    outputs
+    depends_on
+    async
+    optional
+    timeout_ms
+    max_retries
+  )
+  @sub_workflow_step_keys ~w(
+    name
+    type
+    workflow
+    inputs
+    depends_on
+    condition
+    parallel
+    timeout_ms
   )
   @settings_keys ~w(max_concurrency timeout_ms retry_policy on_failure)
   @retry_policy_keys ~w(max_retries backoff base_delay_ms)
@@ -257,14 +303,13 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp normalize_step(step, path, step_types, errors) when is_map(step) do
-    errors = reject_unknown_keys(step, @step_keys, path, errors)
-
     {name, errors} =
       required_string(step, :name, path ++ ["name"], nil, "name is required", errors)
 
     {type, errors} =
       required_string(step, :type, path ++ ["type"], nil, "type is required", errors)
 
+    errors = reject_unknown_keys(step, step_allowed_keys(type, step_types), path, errors)
     errors = maybe_add_inclusion_error(errors, type, step_types, path ++ ["type"])
     {module, errors} = optional_string(step, :module, path ++ ["module"], errors)
     {agent, errors} = optional_string(step, :agent, path ++ ["agent"], errors)
@@ -339,6 +384,15 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp validate_step_requirements(errors, _type, _module, _agent, _workflow, _path), do: errors
+
+  defp step_allowed_keys("action", _step_types), do: @action_step_keys
+  defp step_allowed_keys("agent", _step_types), do: @agent_step_keys
+  defp step_allowed_keys("skill", _step_types), do: @skill_step_keys
+  defp step_allowed_keys("sub_workflow", _step_types), do: @sub_workflow_step_keys
+
+  defp step_allowed_keys(type, _step_types) when is_binary(type), do: @step_generic_keys
+
+  defp step_allowed_keys(_type, _step_types), do: @step_generic_keys
 
   defp maybe_add_inclusion_error(errors, nil, _allowed, _path), do: errors
 
