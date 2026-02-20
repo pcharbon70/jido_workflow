@@ -281,6 +281,86 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     refute_receive {:signal, %Signal{type: "workflow.run.started"}}, 200
   end
 
+  test "accepts start requests with generated run_id when run_store is unavailable", context do
+    write_workflow(context.tmp_dir, "command_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    missing_run_store = unique_name("command_runtime_missing_run_store")
+    _ = :sys.replace_state(context.command_runtime, &Map.put(&1, :run_store, missing_run_store))
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "command_flow",
+                   "inputs" => %{"value" => "hello"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.accepted",
+                      data: %{"workflow_id" => "command_flow", "run_id" => run_id}
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.started",
+                      data: %{"workflow_id" => "command_flow", "run_id" => ^run_id}
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{
+                        "workflow_id" => "command_flow",
+                        "run_id" => ^run_id,
+                        "result" => %{"echo" => "hello"}
+                      }
+                    }},
+                   5_000
+  end
+
+  test "rejects start requests with explicit run_id when run_store is unavailable", context do
+    write_workflow(context.tmp_dir, "command_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    missing_run_store = unique_name("command_runtime_missing_run_store")
+    _ = :sys.replace_state(context.command_runtime, &Map.put(&1, :run_store, missing_run_store))
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "command_flow",
+                   "run_id" => "run_unavailable_store",
+                   "inputs" => %{"value" => "hello"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.rejected",
+                      data: %{
+                        "workflow_id" => "command_flow",
+                        "run_id" => "run_unavailable_store",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "run_store_unavailable")
+    refute_receive {:signal, %Signal{type: "workflow.run.started"}}, 200
+  end
+
   test "routes pause/resume/cancel command signals through run controls", context do
     assert :ok =
              RunStore.record_started(
