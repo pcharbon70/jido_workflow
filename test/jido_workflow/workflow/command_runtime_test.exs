@@ -103,6 +103,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
           "workflow.definition.list.*",
           "workflow.definition.get.*",
           "workflow.registry.refresh.*",
+          "workflow.registry.reload.*",
           "workflow.trigger.manual.*",
           "workflow.trigger.refresh.*",
           "workflow.trigger.sync.*",
@@ -402,7 +403,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     }},
                    5_000
 
-    assert subscription_count >= 14
+    assert subscription_count >= 15
   end
 
   test "returns workflow metadata for workflow.definition.list.requested", context do
@@ -516,6 +517,59 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
 
     assert String.contains?(reason, "workflow_registry_unavailable")
+  end
+
+  test "handles workflow.registry.reload.requested for a known workflow", context do
+    write_workflow(context.tmp_dir, "registry_reload_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.registry.reload.requested",
+                 %{"workflow_id" => "registry_reload_flow"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.reload.accepted",
+                      data: %{
+                        "workflow_id" => "registry_reload_flow",
+                        "summary" => %{
+                          "changed" => changed,
+                          "total" => total
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert changed >= 1
+    assert total >= 1
+  end
+
+  test "rejects workflow.registry.reload.requested for unknown workflow", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.registry.reload.requested",
+                 %{"workflow_id" => "missing_reload_flow"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.reload.rejected",
+                      data: %{
+                        "workflow_id" => "missing_reload_flow",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
   end
 
   test "handles workflow.trigger.refresh.requested via trigger runtime", context do

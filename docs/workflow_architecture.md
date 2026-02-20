@@ -40,6 +40,7 @@ This document locks the initial architecture contracts for implementing markdown
   - `workflow.definition.list.requested`
   - `workflow.definition.get.requested`
   - `workflow.registry.refresh.requested`
+  - `workflow.registry.reload.requested`
   - `workflow.trigger.manual.requested`
   - `workflow.trigger.refresh.requested`
   - `workflow.trigger.sync.requested`

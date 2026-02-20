@@ -10,6 +10,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   - `workflow.definition.list.requested`
   - `workflow.definition.get.requested`
   - `workflow.registry.refresh.requested`
+  - `workflow.registry.reload.requested`
   - `workflow.trigger.manual.requested`
   - `workflow.trigger.refresh.requested`
   - `workflow.trigger.sync.requested`
@@ -37,6 +38,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @definition_list_requested "workflow.definition.list.requested"
   @definition_get_requested "workflow.definition.get.requested"
   @registry_refresh_requested "workflow.registry.refresh.requested"
+  @registry_reload_requested "workflow.registry.reload.requested"
   @manual_trigger_requested "workflow.trigger.manual.requested"
   @trigger_refresh_requested "workflow.trigger.refresh.requested"
   @trigger_sync_requested "workflow.trigger.sync.requested"
@@ -61,6 +63,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @definition_get_rejected "workflow.definition.get.rejected"
   @registry_refresh_accepted "workflow.registry.refresh.accepted"
   @registry_refresh_rejected "workflow.registry.refresh.rejected"
+  @registry_reload_accepted "workflow.registry.reload.accepted"
+  @registry_reload_rejected "workflow.registry.reload.rejected"
   @manual_trigger_accepted "workflow.trigger.manual.accepted"
   @manual_trigger_rejected "workflow.trigger.manual.rejected"
   @trigger_refresh_accepted "workflow.trigger.refresh.accepted"
@@ -189,6 +193,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   def handle_info({:signal, %Signal{type: @registry_refresh_requested} = signal}, state) do
     handle_registry_refresh_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @registry_reload_requested} = signal}, state) do
+    handle_registry_reload_requested(signal, state)
   end
 
   def handle_info({:signal, %Signal{type: @manual_trigger_requested} = signal}, state) do
@@ -641,6 +649,35 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
+  defp handle_registry_reload_requested(signal, state) do
+    with {:ok, workflow_id} <- normalize_required_workflow_id(signal.data),
+         {:ok, summary} <- reload_workflow_registry(state.workflow_registry, workflow_id) do
+      _ =
+        publish_command_response(
+          state.bus,
+          @registry_reload_accepted,
+          %{"workflow_id" => workflow_id, "summary" => to_signal_value(summary)},
+          signal
+        )
+
+      {:noreply, state}
+    else
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @registry_reload_rejected,
+            %{
+              "workflow_id" => fetch(signal.data, "workflow_id"),
+              "reason" => format_reason(reason)
+            },
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
   defp launch_run_task(request, state) do
     run_id = request.run_id || generate_run_id()
     backend = resolve_backend(request.backend || state.backend)
@@ -1033,6 +1070,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       @definition_list_requested,
       @definition_get_requested,
       @registry_refresh_requested,
+      @registry_reload_requested,
       @manual_trigger_requested,
       @trigger_refresh_requested,
       @trigger_sync_requested,
@@ -1216,6 +1254,13 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp refresh_workflow_registry(workflow_registry) do
     WorkflowRegistry.refresh(workflow_registry)
+  catch
+    :exit, reason ->
+      {:error, {:workflow_registry_unavailable, reason}}
+  end
+
+  defp reload_workflow_registry(workflow_registry, workflow_id) do
+    WorkflowRegistry.reload(workflow_id, workflow_registry)
   catch
     :exit, reason ->
       {:error, {:workflow_registry_unavailable, reason}}
