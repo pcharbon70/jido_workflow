@@ -141,5 +141,36 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
                error.path == ["steps", "0", "callback_signal"] and error.code == :invalid_type
              end)
     end
+
+    test "rejects unknown top-level keys" do
+      attrs = %{
+        "name" => "unknown_top_level_key_flow",
+        "version" => "1.0.0",
+        "steps" => [],
+        "unexpected" => true
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+      assert Enum.any?(errors, &(&1.path == ["unexpected"] and &1.code == :unknown_key))
+    end
+
+    test "rejects unknown signal-policy keys" do
+      attrs = %{
+        "name" => "unknown_signal_key_flow",
+        "version" => "1.0.0",
+        "signals" => %{
+          "topic" => "workflow:unknown_signal_key_flow",
+          "publish_events" => ["workflow_complete"],
+          "unexpected_signal_key" => true
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["signals", "unexpected_signal_key"] and error.code == :unknown_key
+             end)
+    end
   end
 end

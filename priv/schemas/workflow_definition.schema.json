@@ -2,6 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "JidoWorkflow Workflow Definition",
   "type": "object",
+  "additionalProperties": false,
   "required": ["name", "version"],
   "properties": {
     "name": {
@@ -55,6 +56,7 @@
     },
     "signals": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "topic": { "type": "string" },
         "publish_events": {
@@ -66,6 +68,12 @@
     "steps": {
       "type": "array",
       "items": { "$ref": "#/definitions/step" }
+    },
+    "error_handling": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     },
     "return": {
       "type": "object",
