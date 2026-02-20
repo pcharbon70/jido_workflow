@@ -156,6 +156,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   @impl true
   def terminate(_reason, state) do
+    _ = stop_all_run_tasks(state)
     unsubscribe_all(state.bus, state.subscription_ids)
     :ok
   end
@@ -285,7 +286,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             %{
               "workflow_id" => fetch(signal.data, "workflow_id"),
               "reason" => format_reason(reason)
-            },
+            }
+            |> maybe_put("run_id", fetch(signal.data, "run_id")),
             signal
           )
 
@@ -789,6 +791,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     backend = resolve_backend(request.backend || state.backend)
 
     with :ok <- ensure_run_not_registered(state, run_id),
+         :ok <- ensure_run_id_available(state.run_store, run_id),
          {:ok, pid} <- start_run_task_process(request, run_id, backend, state) do
       monitor_ref = Process.monitor(pid)
 
@@ -816,6 +819,16 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     else
       :ok
     end
+  end
+
+  defp ensure_run_id_available(run_store, run_id) do
+    case RunStore.get(run_id, run_store) do
+      {:ok, _run} -> {:error, {:run_id_already_exists, run_id}}
+      {:error, :not_found} -> :ok
+    end
+  catch
+    :exit, reason ->
+      {:error, {:run_store_unavailable, reason}}
   end
 
   defp start_run_task_process(request, run_id, backend, state) do
@@ -859,6 +872,12 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             run_id_by_monitor_ref: Map.delete(state.run_id_by_monitor_ref, monitor_ref)
         }
     end
+  end
+
+  defp stop_all_run_tasks(state) do
+    Enum.reduce(Map.keys(state.run_tasks), state, fn run_id, acc ->
+      stop_run_task(acc, run_id)
+    end)
   end
 
   defp unregister_run_task(state, run_id) do
@@ -924,24 +943,25 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp normalize_start_request(data) do
     workflow_id = fetch(data, "workflow_id")
     run_id = normalize_optional_binary(fetch(data, "run_id"))
-    backend = normalize_backend(fetch(data, "backend"))
     inputs = normalize_start_inputs(data)
 
-    cond do
-      not valid_binary?(workflow_id) ->
-        {:error, {:missing_or_invalid, :workflow_id}}
+    with {:ok, backend} <- normalize_requested_backend(fetch(data, "backend")) do
+      cond do
+        not valid_binary?(workflow_id) ->
+          {:error, {:missing_or_invalid, :workflow_id}}
 
-      not is_map(inputs) ->
-        {:error, {:missing_or_invalid, :inputs}}
+        not is_map(inputs) ->
+          {:error, {:missing_or_invalid, :inputs}}
 
-      true ->
-        {:ok,
-         %{
-           workflow_id: workflow_id,
-           run_id: run_id,
-           backend: backend,
-           inputs: inputs
-         }}
+        true ->
+          {:ok,
+           %{
+             workflow_id: workflow_id,
+             run_id: run_id,
+             backend: backend,
+             inputs: inputs
+           }}
+      end
     end
   end
 
@@ -1500,6 +1520,15 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp normalize_backend(_value), do: nil
+
+  defp normalize_requested_backend(nil), do: {:ok, nil}
+
+  defp normalize_requested_backend(value) do
+    case normalize_backend(value) do
+      nil -> {:error, {:missing_or_invalid, :backend}}
+      backend -> {:ok, backend}
+    end
+  end
 
   defp normalize_optional_binary(value) when is_binary(value) and value != "", do: value
   defp normalize_optional_binary(_value), do: nil
