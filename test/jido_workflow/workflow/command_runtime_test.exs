@@ -95,6 +95,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
           "workflow.run.*",
           "workflow.run.start.*",
           "workflow.run.pause.*",
+          "workflow.run.step.*",
           "workflow.run.resume.*",
           "workflow.run.cancel.*",
           "workflow.run.get.*",
@@ -103,6 +104,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
           "workflow.definition.list.*",
           "workflow.definition.get.*",
           "workflow.registry.refresh.*",
+          "workflow.registry.reload.*",
           "workflow.trigger.manual.*",
           "workflow.trigger.refresh.*",
           "workflow.trigger.sync.*",
@@ -402,7 +404,107 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     }},
                    5_000
 
-    assert subscription_count >= 14
+    assert subscription_count >= 16
+  end
+
+  test "handles workflow.run.step.requested for active strategy runs", context do
+    write_strategy_workflow(context.tmp_dir, "strategy_step_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    run_id = "run_strategy_step_1"
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "strategy_step_flow",
+                   "backend" => "strategy",
+                   "run_id" => run_id,
+                   "inputs" => %{"value" => "hello", "delay_ms" => 1_500}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.accepted",
+                      data: %{"workflow_id" => "strategy_step_flow", "run_id" => ^run_id}
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.started",
+                      data: %{"workflow_id" => "strategy_step_flow", "run_id" => ^run_id}
+                    }},
+                   10_000
+
+    assert_eventually(fn ->
+      status = CommandRuntime.status(context.command_runtime)
+      task = get_in(status, [:run_tasks, run_id])
+      is_map(task) and task.backend == :strategy and is_pid(task.runtime_agent_pid)
+    end)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.run.pause.requested", %{"run_id" => run_id},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.pause.accepted",
+                      data: %{"run_id" => ^run_id, "workflow_id" => "strategy_step_flow"}
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.paused",
+                      data: %{"run_id" => ^run_id, "status" => "paused"}
+                    }},
+                   5_000
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.run.step.requested", %{"run_id" => run_id},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.step.accepted",
+                      data: %{"run_id" => ^run_id, "workflow_id" => "strategy_step_flow"}
+                    }},
+                   5_000
+  end
+
+  test "rejects workflow.run.step.requested for non-strategy runs", context do
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_step_direct", workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.run.step.requested", %{"run_id" => "run_step_direct"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.step.rejected",
+                      data: %{"run_id" => "run_step_direct", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "unsupported_backend")
   end
 
   test "returns workflow metadata for workflow.definition.list.requested", context do
@@ -516,6 +618,59 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
 
     assert String.contains?(reason, "workflow_registry_unavailable")
+  end
+
+  test "handles workflow.registry.reload.requested for a known workflow", context do
+    write_workflow(context.tmp_dir, "registry_reload_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.registry.reload.requested",
+                 %{"workflow_id" => "registry_reload_flow"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.reload.accepted",
+                      data: %{
+                        "workflow_id" => "registry_reload_flow",
+                        "summary" => %{
+                          "changed" => changed,
+                          "total" => total
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert changed >= 1
+    assert total >= 1
+  end
+
+  test "rejects workflow.registry.reload.requested for unknown workflow", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.registry.reload.requested",
+                 %{"workflow_id" => "missing_reload_flow"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.reload.rejected",
+                      data: %{
+                        "workflow_id" => "missing_reload_flow",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
   end
 
   test "handles workflow.trigger.refresh.requested via trigger runtime", context do

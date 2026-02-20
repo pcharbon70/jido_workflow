@@ -32,6 +32,7 @@ This document locks the initial architecture contracts for implementing markdown
 - Commands:
   - `workflow.run.start.requested`
   - `workflow.run.pause.requested`
+  - `workflow.run.step.requested`
   - `workflow.run.resume.requested`
   - `workflow.run.cancel.requested`
   - `workflow.run.get.requested`
@@ -40,6 +41,7 @@ This document locks the initial architecture contracts for implementing markdown
   - `workflow.definition.list.requested`
   - `workflow.definition.get.requested`
   - `workflow.registry.refresh.requested`
+  - `workflow.registry.reload.requested`
   - `workflow.trigger.manual.requested`
   - `workflow.trigger.refresh.requested`
   - `workflow.trigger.sync.requested`
