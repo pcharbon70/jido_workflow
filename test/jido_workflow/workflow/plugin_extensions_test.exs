@@ -163,7 +163,7 @@ defmodule JidoWorkflow.Workflow.PluginExtensionsTest do
       inputs: [],
       triggers: [],
       settings: nil,
-      channel: nil,
+      signals: nil,
       steps: steps,
       error_handling: [],
       return: nil

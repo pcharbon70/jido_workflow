@@ -82,8 +82,6 @@ defmodule JidoWorkflow.Workflow.EngineTestActions.CaptureBackend do
       |> maybe_put("backend", fetch(workflow, "backend"))
       |> maybe_put("signal_topic", fetch(workflow, "signal_topic"))
       |> maybe_put("publish_events", fetch(workflow, "publish_events"))
-      |> maybe_put("channel_topic", fetch(workflow, "channel_topic"))
-      |> maybe_put("broadcast_events", fetch(workflow, "broadcast_events"))
 
     {:ok, result}
   end
@@ -112,9 +110,9 @@ defmodule JidoWorkflow.Workflow.EngineTest do
   alias Jido.Signal.Bus
   alias JidoWorkflow.Workflow.Compiler
   alias JidoWorkflow.Workflow.Definition
-  alias JidoWorkflow.Workflow.Definition.Channel, as: DefinitionChannel
   alias JidoWorkflow.Workflow.Definition.Input, as: DefinitionInput
   alias JidoWorkflow.Workflow.Definition.Settings
+  alias JidoWorkflow.Workflow.Definition.Signals, as: DefinitionSignals
   alias JidoWorkflow.Workflow.Definition.Step, as: DefinitionStep
   alias JidoWorkflow.Workflow.Engine
   alias JidoWorkflow.Workflow.RunStore
@@ -138,7 +136,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     assert execution.result["results"]["capture_backend"]["backend"] == "direct"
   end
 
-  test "execute_compiled/3 injects signal policy context without legacy channel aliases" do
+  test "execute_compiled/3 injects signal policy context" do
     definition =
       base_definition(
         [
@@ -150,9 +148,9 @@ defmodule JidoWorkflow.Workflow.EngineTest do
             depends_on: []
           }
         ],
-        channel: %DefinitionChannel{
+        signals: %DefinitionSignals{
           topic: "workflow:engine_context",
-          broadcast_events: ["step_started", "workflow_complete"]
+          publish_events: ["step_started", "workflow_complete"]
         }
       )
 
@@ -164,8 +162,6 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     assert workflow_context["backend"] == "direct"
     assert workflow_context["signal_topic"] == "workflow:engine_context"
     assert workflow_context["publish_events"] == ["step_started", "workflow_complete"]
-    refute Map.has_key?(workflow_context, "channel_topic")
-    refute Map.has_key?(workflow_context, "broadcast_events")
   end
 
   test "execute_compiled/3 executes workflow and projects configured return value (direct backend)" do
@@ -301,7 +297,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     assert is_pid(runtime_agent_pid)
   end
 
-  test "execute_compiled/3 only emits workflow completion events when channel policy is workflow_complete" do
+  test "execute_compiled/3 only emits workflow completion events when publish policy is workflow_complete" do
     bus = start_test_bus()
 
     assert {:ok, _sub_id} =
@@ -318,9 +314,9 @@ defmodule JidoWorkflow.Workflow.EngineTest do
             depends_on: []
           }
         ],
-        channel: %DefinitionChannel{
+        signals: %DefinitionSignals{
           topic: "workflow:engine_example",
-          broadcast_events: ["workflow_complete"]
+          publish_events: ["workflow_complete"]
         }
       )
 
@@ -343,7 +339,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
                     }}
   end
 
-  test "execute_compiled/3 only emits started events when channel policy is step_started" do
+  test "execute_compiled/3 only emits started events when publish policy is step_started" do
     bus = start_test_bus()
 
     assert {:ok, _sub_id} =
@@ -360,9 +356,9 @@ defmodule JidoWorkflow.Workflow.EngineTest do
             depends_on: []
           }
         ],
-        channel: %DefinitionChannel{
+        signals: %DefinitionSignals{
           topic: "workflow:engine_example",
-          broadcast_events: ["step_started"]
+          publish_events: ["step_started"]
         }
       )
 
@@ -383,7 +379,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
     refute_receive {:signal, %Signal{type: "workflow.run.failed", data: %{"run_id" => ^run_id}}}
   end
 
-  test "execute_compiled/3 emits step lifecycle signals with channel source when enabled" do
+  test "execute_compiled/3 emits step lifecycle signals with signal source when enabled" do
     bus = start_test_bus()
 
     assert {:ok, _sub_id} =
@@ -400,9 +396,9 @@ defmodule JidoWorkflow.Workflow.EngineTest do
             depends_on: []
           }
         ],
-        channel: %DefinitionChannel{
+        signals: %DefinitionSignals{
           topic: "workflow:engine_example",
-          broadcast_events: ["step_started", "step_completed"]
+          publish_events: ["step_started", "step_completed"]
         }
       )
 
@@ -455,9 +451,9 @@ defmodule JidoWorkflow.Workflow.EngineTest do
             depends_on: []
           }
         ],
-        channel: %DefinitionChannel{
+        signals: %DefinitionSignals{
           topic: "workflow:engine_example",
-          broadcast_events: ["workflow_complete"]
+          publish_events: ["workflow_complete"]
         }
       )
 
@@ -981,7 +977,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
                     }}
   end
 
-  test "execute_compiled/3 suppresses failed signal when channel policy excludes workflow_complete" do
+  test "execute_compiled/3 suppresses failed signal when publish policy excludes workflow_complete" do
     bus = start_test_bus()
 
     assert {:ok, _sub_id} =
@@ -998,9 +994,9 @@ defmodule JidoWorkflow.Workflow.EngineTest do
             depends_on: []
           }
         ],
-        channel: %DefinitionChannel{
+        signals: %DefinitionSignals{
           topic: "workflow:engine_example",
-          broadcast_events: ["step_started"]
+          publish_events: ["step_started"]
         }
       )
 
@@ -1093,7 +1089,7 @@ defmodule JidoWorkflow.Workflow.EngineTest do
       inputs: Keyword.get(opts, :inputs, []),
       triggers: [],
       settings: Keyword.get(opts, :settings),
-      channel: Keyword.get(opts, :channel),
+      signals: Keyword.get(opts, :signals),
       steps: steps,
       error_handling: Keyword.get(opts, :error_handling, []),
       return: nil

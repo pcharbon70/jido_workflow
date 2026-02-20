@@ -57,46 +57,7 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
       assert definition.settings.max_concurrency == 4
       assert definition.signals.topic == "workflow:code_review_pipeline"
       assert definition.signals.publish_events == ["step_started", "workflow_complete"]
-      assert definition.channel.topic == "workflow:code_review_pipeline"
-      assert definition.channel.broadcast_events == ["step_started", "workflow_complete"]
       assert Enum.at(definition.steps, 1).callback_signal == "security.scan.complete"
-    end
-
-    test "maps legacy channel config into signal policy" do
-      attrs = %{
-        "name" => "legacy_channel_flow",
-        "version" => "1.0.0",
-        "channel" => %{
-          "topic" => "workflow:legacy",
-          "broadcast_events" => ["workflow_complete"]
-        },
-        "steps" => []
-      }
-
-      assert {:ok, %Definition{} = definition} = Validator.validate(attrs)
-      assert definition.signals.topic == "workflow:legacy"
-      assert definition.signals.publish_events == ["workflow_complete"]
-      assert definition.channel.topic == "workflow:legacy"
-      assert definition.channel.broadcast_events == ["workflow_complete"]
-    end
-
-    test "rejects conflicting channel and signals policy when both are provided" do
-      attrs = %{
-        "name" => "conflicting_policies",
-        "version" => "1.0.0",
-        "signals" => %{
-          "topic" => "workflow:signals",
-          "publish_events" => ["step_started"]
-        },
-        "channel" => %{
-          "topic" => "workflow:channel",
-          "broadcast_events" => ["workflow_complete"]
-        },
-        "steps" => []
-      }
-
-      assert {:error, errors} = Validator.validate(attrs)
-      assert Enum.any?(errors, &(&1.path == ["signals"] and &1.code == :invalid_value))
     end
 
     test "returns path-aware errors for invalid name and version" do

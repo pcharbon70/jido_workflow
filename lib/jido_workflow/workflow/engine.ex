@@ -593,34 +593,15 @@ defmodule JidoWorkflow.Workflow.Engine do
 
   defp compiled_signal_policy(compiled) when is_map(compiled) do
     case Map.get(compiled, :signals) || Map.get(compiled, "signals") do
-      %{} = signals ->
-        signals
-
-      _ ->
-        normalize_legacy_channel(Map.get(compiled, :channel) || Map.get(compiled, "channel"))
+      %{} = signals -> signals
+      _ -> nil
     end
   end
-
-  defp normalize_legacy_channel(%{} = channel) do
-    %{
-      topic: Map.get(channel, :topic) || Map.get(channel, "topic"),
-      publish_events:
-        Map.get(channel, :broadcast_events) ||
-          Map.get(channel, "broadcast_events") ||
-          Map.get(channel, :publish_events) ||
-          Map.get(channel, "publish_events")
-    }
-  end
-
-  defp normalize_legacy_channel(_other), do: nil
 
   defp signal_publish_events(nil), do: nil
 
   defp signal_publish_events(signal_policy) when is_map(signal_policy) do
-    case Map.get(signal_policy, :publish_events) ||
-           Map.get(signal_policy, "publish_events") ||
-           Map.get(signal_policy, :broadcast_events) ||
-           Map.get(signal_policy, "broadcast_events") do
+    case Map.get(signal_policy, :publish_events) || Map.get(signal_policy, "publish_events") do
       events when is_list(events) -> events
       _ -> nil
     end

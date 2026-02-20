@@ -239,8 +239,7 @@ defmodule JidoWorkflow.Workflow.Actions.ExecuteSkillStep do
     context = workflow_context(state)
 
     events =
-      fetch_context_value(context, "publish_events") ||
-        fetch_context_value(context, "broadcast_events")
+      fetch_context_value(context, "publish_events")
 
     case events do
       nil ->
