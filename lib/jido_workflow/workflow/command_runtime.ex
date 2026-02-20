@@ -6,6 +6,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   - `workflow.run.start.requested`
   - `workflow.run.pause.requested`
   - `workflow.run.step.requested`
+  - `workflow.run.mode.requested`
   - `workflow.run.resume.requested`
   - `workflow.run.cancel.requested`
   - `workflow.run.get.requested`
@@ -35,6 +36,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @start_requested "workflow.run.start.requested"
   @pause_requested "workflow.run.pause.requested"
   @step_requested "workflow.run.step.requested"
+  @mode_requested "workflow.run.mode.requested"
   @resume_requested "workflow.run.resume.requested"
   @cancel_requested "workflow.run.cancel.requested"
   @get_requested "workflow.run.get.requested"
@@ -55,6 +57,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   @pause_rejected "workflow.run.pause.rejected"
   @step_accepted "workflow.run.step.accepted"
   @step_rejected "workflow.run.step.rejected"
+  @mode_accepted "workflow.run.mode.accepted"
+  @mode_rejected "workflow.run.mode.rejected"
   @resume_accepted "workflow.run.resume.accepted"
   @resume_rejected "workflow.run.resume.rejected"
   @cancel_accepted "workflow.run.cancel.accepted"
@@ -172,6 +176,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   def handle_info({:signal, %Signal{type: @step_requested} = signal}, state) do
     handle_step_requested(signal, state)
+  end
+
+  def handle_info({:signal, %Signal{type: @mode_requested} = signal}, state) do
+    handle_mode_requested(signal, state)
   end
 
   def handle_info({:signal, %Signal{type: @resume_requested} = signal}, state) do
@@ -437,7 +445,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp handle_step_requested(signal, state) do
     with {:ok, run_id} <- fetch_required_run_id(signal.data),
          {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store),
-         :ok <- ensure_step_status(run),
+         :ok <- ensure_active_run_status(run),
          {:ok, runtime_agent_pid} <- fetch_strategy_runtime_agent(state, run_id, run),
          :ok <-
            send_runtime_signal(
@@ -466,6 +474,52 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             @step_rejected,
             %{
               "run_id" => fetch(signal.data, "run_id"),
+              "reason" => format_reason(reason)
+            },
+            signal
+          )
+
+        {:noreply, state}
+    end
+  end
+
+  defp handle_mode_requested(signal, state) do
+    with {:ok, run_id} <- fetch_required_run_id(signal.data),
+         {:ok, mode} <- fetch_required_mode(signal.data),
+         {:ok, run} <- Engine.get_run(run_id, run_store: state.run_store),
+         :ok <- ensure_active_run_status(run),
+         {:ok, runtime_agent_pid} <- fetch_strategy_runtime_agent(state, run_id, run),
+         :ok <-
+           send_runtime_signal(
+             runtime_agent_pid,
+             "runic.set_mode",
+             %{mode: mode},
+             runtime_source(run_id, "mode")
+           ),
+         {:ok, run_after_mode} <- apply_run_mode_transition(mode, run, state) do
+      _ =
+        publish_command_response(
+          state.bus,
+          @mode_accepted,
+          %{
+            "workflow_id" => run_after_mode.workflow_id,
+            "run_id" => run_after_mode.run_id,
+            "mode" => Atom.to_string(mode),
+            "status" => Atom.to_string(run_after_mode.status)
+          },
+          signal
+        )
+
+      {:noreply, state}
+    else
+      {:error, reason} ->
+        _ =
+          publish_command_response(
+            state.bus,
+            @mode_rejected,
+            %{
+              "run_id" => fetch(signal.data, "run_id"),
+              "mode" => fetch(signal.data, "mode"),
               "reason" => format_reason(reason)
             },
             signal
@@ -1099,6 +1153,23 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
+  defp fetch_required_mode(data) do
+    case fetch(data, "mode") do
+      mode when mode in [:auto, :step] ->
+        {:ok, mode}
+
+      mode when is_binary(mode) ->
+        case String.downcase(mode) do
+          "auto" -> {:ok, :auto}
+          "step" -> {:ok, :step}
+          _ -> {:error, {:missing_or_invalid, :mode}}
+        end
+
+      _ ->
+        {:error, {:missing_or_invalid, :mode}}
+    end
+  end
+
   defp publish_command_response(bus, type, payload, request_signal) do
     response =
       payload
@@ -1115,6 +1186,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       @start_requested,
       @pause_requested,
       @step_requested,
+      @mode_requested,
       @resume_requested,
       @cancel_requested,
       @get_requested,
@@ -1171,15 +1243,42 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
-  defp ensure_step_status(run) do
+  defp ensure_active_run_status(run) do
     case run.status do
       status when status in [:running, :paused] ->
         :ok
 
       status ->
-        {:error, {:invalid_transition, status, :step}}
+        {:error, {:invalid_transition, status, :active_control}}
     end
   end
+
+  defp apply_run_mode_transition(:step, %{status: :running} = run, state) do
+    case Engine.pause(run.run_id, run_store: state.run_store, bus: state.bus) do
+      :ok ->
+        Engine.get_run(run.run_id, run_store: state.run_store)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp apply_run_mode_transition(:step, %{status: :paused} = run, _state), do: {:ok, run}
+
+  defp apply_run_mode_transition(:auto, %{status: :paused} = run, state) do
+    case Engine.resume(run.run_id, run_store: state.run_store, bus: state.bus) do
+      :ok ->
+        Engine.get_run(run.run_id, run_store: state.run_store)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp apply_run_mode_transition(:auto, %{status: :running} = run, _state), do: {:ok, run}
+
+  defp apply_run_mode_transition(mode, run, _state),
+    do: {:error, {:invalid_transition, run.status, mode}}
 
   defp fetch_strategy_runtime_agent(state, run_id, run) do
     case run.backend do

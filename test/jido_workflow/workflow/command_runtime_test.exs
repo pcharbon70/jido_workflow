@@ -96,6 +96,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
           "workflow.run.start.*",
           "workflow.run.pause.*",
           "workflow.run.step.*",
+          "workflow.run.mode.*",
           "workflow.run.resume.*",
           "workflow.run.cancel.*",
           "workflow.run.get.*",
@@ -404,7 +405,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     }},
                    5_000
 
-    assert subscription_count >= 16
+    assert subscription_count >= 17
   end
 
   test "handles workflow.run.step.requested for active strategy runs", context do
@@ -483,6 +484,103 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
   end
 
+  test "handles workflow.run.mode.requested for active strategy runs", context do
+    write_strategy_workflow(context.tmp_dir, "strategy_mode_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    run_id = "run_strategy_mode_1"
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "strategy_mode_flow",
+                   "backend" => "strategy",
+                   "run_id" => run_id,
+                   "inputs" => %{"value" => "hello", "delay_ms" => 1_500}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.accepted",
+                      data: %{"workflow_id" => "strategy_mode_flow", "run_id" => ^run_id}
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.started",
+                      data: %{"workflow_id" => "strategy_mode_flow", "run_id" => ^run_id}
+                    }},
+                   10_000
+
+    assert_eventually(fn ->
+      status = CommandRuntime.status(context.command_runtime)
+      task = get_in(status, [:run_tasks, run_id])
+      is_map(task) and task.backend == :strategy and is_pid(task.runtime_agent_pid)
+    end)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.mode.requested",
+                 %{"run_id" => run_id, "mode" => "step"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.mode.accepted",
+                      data: %{
+                        "run_id" => ^run_id,
+                        "workflow_id" => "strategy_mode_flow",
+                        "mode" => "step",
+                        "status" => "paused"
+                      }
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.paused",
+                      data: %{"run_id" => ^run_id, "status" => "paused"}
+                    }},
+                   5_000
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.mode.requested",
+                 %{"run_id" => run_id, "mode" => "auto"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.mode.accepted",
+                      data: %{
+                        "run_id" => ^run_id,
+                        "workflow_id" => "strategy_mode_flow",
+                        "mode" => "auto",
+                        "status" => "running"
+                      }
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.resumed",
+                      data: %{"run_id" => ^run_id, "status" => "running"}
+                    }},
+                   5_000
+  end
+
   test "rejects workflow.run.step.requested for non-strategy runs", context do
     assert :ok =
              RunStore.record_started(
@@ -501,6 +599,36 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     %Signal{
                       type: "workflow.run.step.rejected",
                       data: %{"run_id" => "run_step_direct", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "unsupported_backend")
+  end
+
+  test "rejects workflow.run.mode.requested for non-strategy runs", context do
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_mode_direct", workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.mode.requested",
+                 %{"run_id" => "run_mode_direct", "mode" => "step"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.mode.rejected",
+                      data: %{
+                        "run_id" => "run_mode_direct",
+                        "mode" => "step",
+                        "reason" => reason
+                      }
                     }},
                    5_000
 
