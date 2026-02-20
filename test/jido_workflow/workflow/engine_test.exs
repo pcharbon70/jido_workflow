@@ -77,8 +77,32 @@ defmodule JidoWorkflow.Workflow.EngineTestActions.CaptureBackend do
 
   @impl true
   def run(%{workflow: workflow}, _context) do
-    {:ok, %{"backend" => workflow["backend"] || workflow[:backend]}}
+    result =
+      %{}
+      |> maybe_put("backend", fetch(workflow, "backend"))
+      |> maybe_put("signal_topic", fetch(workflow, "signal_topic"))
+      |> maybe_put("publish_events", fetch(workflow, "publish_events"))
+      |> maybe_put("channel_topic", fetch(workflow, "channel_topic"))
+      |> maybe_put("broadcast_events", fetch(workflow, "broadcast_events"))
+
+    {:ok, result}
   end
+
+  defp maybe_put(result, _key, nil), do: result
+  defp maybe_put(result, key, value), do: Map.put(result, key, value)
+
+  defp fetch(workflow, key) when is_map(workflow) do
+    Map.get(workflow, key) ||
+      Enum.find_value(workflow, fn
+        {map_key, map_value} when is_atom(map_key) ->
+          if Atom.to_string(map_key) == key, do: map_value
+
+        _other ->
+          nil
+      end)
+  end
+
+  defp fetch(_workflow, _key), do: nil
 end
 
 defmodule JidoWorkflow.Workflow.EngineTest do
@@ -112,6 +136,36 @@ defmodule JidoWorkflow.Workflow.EngineTest do
 
     assert {:ok, execution} = Engine.execute_compiled(compiled, %{}, backend: :direct)
     assert execution.result["results"]["capture_backend"]["backend"] == "direct"
+  end
+
+  test "execute_compiled/3 injects signal policy context without legacy channel aliases" do
+    definition =
+      base_definition(
+        [
+          %DefinitionStep{
+            name: "capture_backend",
+            type: "action",
+            module: "JidoWorkflow.Workflow.EngineTestActions.CaptureBackend",
+            inputs: %{"workflow" => "`input:__workflow`"},
+            depends_on: []
+          }
+        ],
+        channel: %DefinitionChannel{
+          topic: "workflow:engine_context",
+          broadcast_events: ["step_started", "workflow_complete"]
+        }
+      )
+
+    assert {:ok, compiled} = Compiler.compile(definition)
+    assert {:ok, execution} = Engine.execute_compiled(compiled, %{}, backend: :direct)
+
+    workflow_context = execution.result["results"]["capture_backend"]
+
+    assert workflow_context["backend"] == "direct"
+    assert workflow_context["signal_topic"] == "workflow:engine_context"
+    assert workflow_context["publish_events"] == ["step_started", "workflow_complete"]
+    refute Map.has_key?(workflow_context, "channel_topic")
+    refute Map.has_key?(workflow_context, "broadcast_events")
   end
 
   test "execute_compiled/3 executes workflow and projects configured return value (direct backend)" do
