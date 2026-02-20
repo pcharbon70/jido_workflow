@@ -361,6 +361,83 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     refute_receive {:signal, %Signal{type: "workflow.run.started"}}, 200
   end
 
+  test "rejects pause requests when run_store is unavailable without crashing runtime", context do
+    missing_run_store = unique_name("command_runtime_missing_run_store")
+    _ = :sys.replace_state(context.command_runtime, &Map.put(&1, :run_store, missing_run_store))
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.pause.requested",
+                 %{"run_id" => "run_pause_missing_store"}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.pause.rejected",
+                      data: %{"run_id" => "run_pause_missing_store", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "run_store_unavailable")
+    assert Process.alive?(context.command_runtime)
+  end
+
+  test "rejects get requests when run_store is unavailable without crashing runtime", context do
+    missing_run_store = unique_name("command_runtime_missing_run_store")
+    _ = :sys.replace_state(context.command_runtime, &Map.put(&1, :run_store, missing_run_store))
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.run.get.requested", %{"run_id" => "run_get_missing_store"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.get.rejected",
+                      data: %{"run_id" => "run_get_missing_store", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "run_store_unavailable")
+    assert Process.alive?(context.command_runtime)
+  end
+
+  test "rejects list requests when run_store is unavailable and remains responsive", context do
+    missing_run_store = unique_name("command_runtime_missing_run_store")
+    _ = :sys.replace_state(context.command_runtime, &Map.put(&1, :run_store, missing_run_store))
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.run.list.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.rejected",
+                      data: %{"reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "run_store_unavailable")
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{"status" => %{"subscription_count" => subscription_count}}
+                    }},
+                   5_000
+
+    assert subscription_count >= 17
+  end
+
   test "routes pause/resume/cancel command signals through run controls", context do
     assert :ok =
              RunStore.record_started(
