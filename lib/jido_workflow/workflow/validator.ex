@@ -455,6 +455,7 @@ defmodule JidoWorkflow.Workflow.Validator do
     errors =
       errors
       |> validate_step_requirements(type, module, agent, workflow, path)
+      |> maybe_add_non_empty_optional_string_error(callback_signal, path ++ ["callback_signal"])
       |> maybe_add_inclusion_error(mode, @agent_modes, path ++ ["mode"])
       |> maybe_add_minimum_integer_error(timeout_ms, 1, path ++ ["timeout_ms"])
       |> maybe_add_minimum_integer_error(max_retries, 0, path ++ ["max_retries"])
@@ -558,6 +559,16 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp maybe_add_minimum_integer_error(errors, value, minimum, path) when is_integer(value) do
     if value < minimum do
       error(errors, path, :invalid_value, "must be >= #{minimum}")
+    else
+      errors
+    end
+  end
+
+  defp maybe_add_non_empty_optional_string_error(errors, nil, _path), do: errors
+
+  defp maybe_add_non_empty_optional_string_error(errors, value, path) when is_binary(value) do
+    if String.trim(value) == "" do
+      error(errors, path, :invalid_value, "must be a non-empty string")
     else
       errors
     end

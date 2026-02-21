@@ -418,6 +418,27 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects whitespace-only callback_signal values" do
+    attrs = %{
+      "name" => "schema_whitespace_callback_signal_workflow",
+      "version" => "1.0.0",
+      "steps" => [
+        %{
+          "name" => "security_scan",
+          "type" => "agent",
+          "agent" => "security_reviewer",
+          "callback_signal" => " "
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "0"], ["steps", "0", "callback_signal"]]
+           end)
+  end
+
   test "validate_workflow/1 enforces built-in trigger event values" do
     attrs = %{
       "name" => "schema_invalid_trigger_events_workflow",

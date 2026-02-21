@@ -260,7 +260,7 @@
         "name": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "agent" },
         "agent": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
-        "callback_signal": { "type": "string", "minLength": 1 },
+        "callback_signal": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] },
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "mode": { "enum": ["sync", "async"] },
