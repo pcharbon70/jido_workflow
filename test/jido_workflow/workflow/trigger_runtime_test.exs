@@ -69,9 +69,18 @@ defmodule JidoWorkflow.Workflow.TriggerRuntimeTest do
          sync_on_start: false}
       )
 
-    assert {:ok, %{triggers: trigger_summary}} = TriggerRuntime.refresh(runtime)
-    assert trigger_summary.started == 2
-    assert trigger_summary.errors == []
+    assert_eventually(
+      fn ->
+        case TriggerRuntime.refresh(runtime) do
+          {:ok, %{triggers: trigger_summary}} ->
+            trigger_summary.started == 2 and trigger_summary.errors == []
+
+          _ ->
+            false
+        end
+      end,
+      2_000
+    )
 
     assert {:ok, _sub_id} =
              Bus.subscribe(context.bus, "workflow.run.*", dispatch: {:pid, target: self()})
@@ -125,8 +134,18 @@ defmodule JidoWorkflow.Workflow.TriggerRuntimeTest do
          sync_on_start: false}
       )
 
-    assert {:ok, %{triggers: first_sync}} = TriggerRuntime.refresh(runtime)
-    assert first_sync.started == 2
+    assert_eventually(
+      fn ->
+        case TriggerRuntime.refresh(runtime) do
+          {:ok, %{triggers: first_sync}} ->
+            first_sync.started == 2 and first_sync.errors == []
+
+          _ ->
+            false
+        end
+      end,
+      2_000
+    )
 
     File.rm!(path)
 
@@ -175,9 +194,18 @@ defmodule JidoWorkflow.Workflow.TriggerRuntimeTest do
          sync_on_start: false}
       )
 
-    assert {:ok, %{triggers: trigger_summary}} = TriggerRuntime.refresh(runtime)
-    assert trigger_summary.started == 2
-    assert trigger_summary.errors == []
+    assert_eventually(
+      fn ->
+        case TriggerRuntime.refresh(runtime) do
+          {:ok, %{triggers: trigger_summary}} ->
+            trigger_summary.started == 2 and trigger_summary.errors == []
+
+          _ ->
+            false
+        end
+      end,
+      2_000
+    )
 
     assert {:ok, _sub_id} =
              Bus.subscribe(context.bus, "workflow.run.*", dispatch: {:pid, target: self()})

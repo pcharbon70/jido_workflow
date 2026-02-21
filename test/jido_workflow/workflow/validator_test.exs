@@ -641,6 +641,26 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects whitespace-only action for non-compensation handlers" do
+      attrs = %{
+        "name" => "whitespace_non_compensation_action_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "notify:parse_file",
+            "action" => " "
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "action"] and error.code == :invalid_value
+             end)
+    end
+
     test "requires non-empty module, agent, and workflow for built-in step types" do
       attrs = %{
         "name" => "empty_step_targets_flow",

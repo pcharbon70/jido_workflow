@@ -543,6 +543,26 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects whitespace-only actions for non-compensation handlers" do
+    attrs = %{
+      "name" => "schema_whitespace_non_compensation_action_workflow",
+      "version" => "1.0.0",
+      "error_handling" => [
+        %{
+          "handler" => "notify:parse_file",
+          "action" => " "
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["error_handling", "0"], ["error_handling", "0", "action"]]
+           end)
+  end
+
   test "validate_workflow/1 enforces input default type compatibility" do
     attrs = %{
       "name" => "schema_invalid_input_default_type_workflow",

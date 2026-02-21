@@ -735,7 +735,11 @@ defmodule JidoWorkflow.Workflow.Validator do
 
     {action, errors} = optional_string(handler, :action, path ++ ["action"], errors)
     {inputs, errors} = optional_map_or_list(handler, :inputs, path ++ ["inputs"], errors)
-    errors = maybe_add_missing_compensation_action_error(errors, handler_name, action, path)
+
+    errors =
+      errors
+      |> maybe_add_non_empty_non_compensation_action_error(handler_name, action, path)
+      |> maybe_add_missing_compensation_action_error(handler_name, action, path)
 
     {%{"handler" => handler_name, "action" => action, "inputs" => inputs}, errors}
   end
@@ -750,6 +754,19 @@ defmodule JidoWorkflow.Workflow.Validator do
     else
       errors
     end
+  end
+
+  defp maybe_add_non_empty_non_compensation_action_error(errors, handler_name, action, path)
+       when is_binary(handler_name) do
+    if compensation_handler_name?(handler_name) do
+      errors
+    else
+      maybe_add_non_empty_optional_string_error(errors, action, path ++ ["action"])
+    end
+  end
+
+  defp maybe_add_non_empty_non_compensation_action_error(errors, _handler_name, _action, _path) do
+    errors
   end
 
   defp compensation_handler_name?(name) when is_binary(name) do
