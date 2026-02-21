@@ -240,6 +240,34 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "workflow_not_available")
   end
 
+  test "normalizes identifiers in workflow.run.start.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "  missing_workflow  ",
+                   "run_id" => "  run_missing_workflow_ws  ",
+                   "inputs" => %{"value" => "hello"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.rejected",
+                      data: %{
+                        "workflow_id" => "missing_workflow",
+                        "run_id" => "run_missing_workflow_ws",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "workflow_not_available")
+  end
+
   test "emits start rejected when requested backend is invalid", context do
     write_workflow(context.tmp_dir, "command_flow")
 
@@ -625,6 +653,24 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
   end
 
+  test "normalizes run_id in workflow.run.get.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.run.get.requested", %{"run_id" => "  run_get_missing_ws  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.get.rejected",
+                      data: %{"run_id" => "run_get_missing_ws", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
+  end
+
   test "returns filtered runs for workflow.run.list.requested", context do
     assert :ok =
              RunStore.record_started(
@@ -980,7 +1026,11 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert_receive {:signal,
                     %Signal{
                       type: "workflow.run.mode.rejected",
-                      data: %{"reason" => reason}
+                      data: %{
+                        "run_id" => "run_mode_ws_direct",
+                        "mode" => "STEP",
+                        "reason" => reason
+                      }
                     }},
                    5_000
 
@@ -1088,6 +1138,26 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "not_found")
   end
 
+  test "normalizes workflow_id in workflow.definition.get.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.get.requested",
+                 %{"workflow_id" => "  missing_flow  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.get.rejected",
+                      data: %{"workflow_id" => "missing_flow", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
+  end
+
   test "handles workflow.registry.refresh.requested", context do
     write_workflow(context.tmp_dir, "registry_refresh_flow")
 
@@ -1176,6 +1246,26 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                         "workflow_id" => "missing_reload_flow",
                         "reason" => reason
                       }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
+  end
+
+  test "normalizes workflow_id in workflow.registry.reload.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.registry.reload.requested",
+                 %{"workflow_id" => "  missing_reload_flow  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.reload.rejected",
+                      data: %{"workflow_id" => "missing_reload_flow", "reason" => reason}
                     }},
                    5_000
 
@@ -1460,6 +1550,48 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                  %{
                    "command" => "/workflow:review",
                    "params" => %{"value" => "from_ambiguous_command"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.manual.rejected",
+                      data: %{
+                        "command" => "/workflow:review",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "ambiguous_manual_command")
+  end
+
+  test "normalizes command in workflow.trigger.manual.rejected payloads", context do
+    write_workflow(context.tmp_dir, "command_flow")
+    write_workflow(context.tmp_dir, "command_flow_alt")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    _first_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow",
+        command: "/workflow:review"
+      )
+
+    _second_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow_alt",
+        command: "/workflow:review"
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.trigger.manual.requested",
+                 %{
+                   "command" => "  /workflow:review  ",
+                   "params" => %{"value" => "from_ambiguous_command_whitespace"}
                  },
                  source: "/test/client"
                )
