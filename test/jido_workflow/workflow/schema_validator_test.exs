@@ -957,6 +957,35 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
     assert :ok = SchemaValidator.validate_workflow_config(attrs)
   end
 
+  test "validate_workflow_config/1 rejects whitespace-only path strings" do
+    attrs = %{
+      "workflow_dir" => "   ",
+      "triggers_config_path" => "\t ",
+      "workflow" => %{
+        "workflow_dir" => "   ",
+        "triggers_config_path" => "  \n"
+      }
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["workflow_dir"]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["triggers_config_path"]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["workflow", "workflow_dir"]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path == ["workflow", "triggers_config_path"]
+           end)
+  end
+
   test "validate_workflow_config/1 returns path-aware errors" do
     attrs = %{
       "workflow_dir" => "",
