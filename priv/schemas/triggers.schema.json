@@ -34,8 +34,8 @@
       "additionalProperties": false,
       "required": ["id", "workflow_id", "type", "config"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "workflow_id": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
+        "workflow_id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "file_system" },
         "enabled": { "type": "boolean", "default": true },
         "config": {
@@ -55,7 +55,7 @@
               }
             },
             "debounce_ms": { "type": "integer", "minimum": 0 },
-            "root_dir": { "type": "string", "minLength": 1 }
+            "root_dir": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
           }
         }
       }
@@ -65,8 +65,8 @@
       "additionalProperties": false,
       "required": ["id", "workflow_id", "type"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "workflow_id": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
+        "workflow_id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "git_hook" },
         "enabled": { "type": "boolean", "default": true },
         "config": {
@@ -74,7 +74,7 @@
           "additionalProperties": false,
           "properties": {
             "events": { "type": "array", "items": { "enum": ["commit", "push", "merge"] } },
-            "repo_path": { "type": "string", "minLength": 1 }
+            "repo_path": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
           }
         }
       }
@@ -84,8 +84,8 @@
       "additionalProperties": false,
       "required": ["id", "workflow_id", "type", "config"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "workflow_id": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
+        "workflow_id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "signal" },
         "enabled": { "type": "boolean", "default": true },
         "config": {
@@ -107,8 +107,8 @@
       "additionalProperties": false,
       "required": ["id", "workflow_id", "type", "config"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "workflow_id": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
+        "workflow_id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "scheduled" },
         "enabled": { "type": "boolean", "default": true },
         "config": {
@@ -116,7 +116,7 @@
           "additionalProperties": false,
           "required": ["schedule"],
           "properties": {
-            "schedule": { "type": "string", "minLength": 1 },
+            "schedule": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
             "params": { "type": "object" }
           }
         }
@@ -127,15 +127,15 @@
       "additionalProperties": false,
       "required": ["id", "workflow_id", "type"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "workflow_id": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
+        "workflow_id": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "manual" },
         "enabled": { "type": "boolean", "default": true },
         "config": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "command": { "type": "string", "minLength": 1 }
+            "command": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
           }
         }
       }
