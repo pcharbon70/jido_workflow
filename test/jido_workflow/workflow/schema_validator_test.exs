@@ -110,6 +110,46 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects keys not allowed for built-in trigger type schemas" do
+    attrs = %{
+      "name" => "schema_invalid_trigger_keys_workflow",
+      "version" => "1.0.0",
+      "triggers" => [
+        %{
+          "type" => "signal",
+          "patterns" => ["workflow.schema.invalid_trigger_keys.requested"],
+          "command" => "/workflow:schema_invalid_trigger_keys_workflow"
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "0"], ["triggers", "0", "command"]]
+           end)
+  end
+
+  test "validate_workflow/1 enforces required trigger fields for built-in schemas" do
+    attrs = %{
+      "name" => "schema_missing_scheduled_trigger_field_workflow",
+      "version" => "1.0.0",
+      "triggers" => [
+        %{
+          "type" => "scheduled"
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "0"], ["triggers", "0", "schedule"]]
+           end)
+  end
+
   test "validate_workflow/1 supports custom plugin step types" do
     assert :ok =
              PluginExtensions.register_step_type(

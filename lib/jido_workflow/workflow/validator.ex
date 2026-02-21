@@ -41,7 +41,12 @@ defmodule JidoWorkflow.Workflow.Validator do
   )
   @signals_keys ~w(topic publish_events)
   @input_keys ~w(name type required default description)
-  @trigger_keys ~w(type patterns events schedule command debounce_ms)
+  @trigger_generic_keys ~w(type patterns events schedule command debounce_ms)
+  @file_system_trigger_keys ~w(type patterns events debounce_ms)
+  @git_hook_trigger_keys ~w(type events)
+  @signal_trigger_keys ~w(type patterns)
+  @scheduled_trigger_keys ~w(type schedule)
+  @manual_trigger_keys ~w(type command)
   @step_generic_keys ~w(
     name
     type
@@ -251,11 +256,10 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp normalize_trigger(trigger, path, trigger_types, errors) when is_map(trigger) do
-    errors = reject_unknown_keys(trigger, @trigger_keys, path, errors)
-
     {type, errors} =
       required_string(trigger, :type, path ++ ["type"], nil, "type is required", errors)
 
+    errors = reject_unknown_keys(trigger, trigger_allowed_keys(type), path, errors)
     errors = maybe_add_inclusion_error(errors, type, trigger_types, path ++ ["type"])
     {patterns, errors} = optional_string_list(trigger, :patterns, path ++ ["patterns"], errors)
     {events, errors} = optional_string_list(trigger, :events, path ++ ["events"], errors)
@@ -264,6 +268,8 @@ defmodule JidoWorkflow.Workflow.Validator do
 
     {debounce_ms, errors} =
       optional_integer(trigger, :debounce_ms, path ++ ["debounce_ms"], errors)
+
+    errors = validate_trigger_requirements(errors, type, patterns, schedule, path)
 
     normalized = %Trigger{
       type: type || "",
@@ -280,6 +286,33 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp normalize_trigger(_trigger, path, _trigger_types, errors) do
     {nil, error(errors, path, :invalid_type, "trigger must be a map")}
   end
+
+  defp validate_trigger_requirements(errors, "file_system", patterns, _schedule, path) do
+    if is_list(patterns) and patterns != [] do
+      errors
+    else
+      error(
+        errors,
+        path ++ ["patterns"],
+        :required,
+        "patterns is required for file_system triggers"
+      )
+    end
+  end
+
+  defp validate_trigger_requirements(errors, "signal", patterns, _schedule, path) do
+    if is_list(patterns) and patterns != [] do
+      errors
+    else
+      error(errors, path ++ ["patterns"], :required, "patterns is required for signal triggers")
+    end
+  end
+
+  defp validate_trigger_requirements(errors, "scheduled", _patterns, nil, path) do
+    error(errors, path ++ ["schedule"], :required, "schedule is required for scheduled triggers")
+  end
+
+  defp validate_trigger_requirements(errors, _type, _patterns, _schedule, _path), do: errors
 
   defp validate_steps(steps, path, step_types, errors) when is_list(steps) do
     steps
@@ -393,6 +426,14 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp step_allowed_keys(type, _step_types) when is_binary(type), do: @step_generic_keys
 
   defp step_allowed_keys(_type, _step_types), do: @step_generic_keys
+
+  defp trigger_allowed_keys("file_system"), do: @file_system_trigger_keys
+  defp trigger_allowed_keys("git_hook"), do: @git_hook_trigger_keys
+  defp trigger_allowed_keys("signal"), do: @signal_trigger_keys
+  defp trigger_allowed_keys("scheduled"), do: @scheduled_trigger_keys
+  defp trigger_allowed_keys("manual"), do: @manual_trigger_keys
+  defp trigger_allowed_keys(type) when is_binary(type), do: @trigger_generic_keys
+  defp trigger_allowed_keys(_type), do: @trigger_generic_keys
 
   defp maybe_add_inclusion_error(errors, nil, _allowed, _path), do: errors
 

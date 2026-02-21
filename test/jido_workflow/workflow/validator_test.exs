@@ -195,6 +195,65 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects keys not allowed for signal triggers" do
+      attrs = %{
+        "name" => "invalid_signal_trigger_keys_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "signal",
+            "patterns" => ["workflow.trigger.invalid_signal_trigger_keys_flow.requested"],
+            "command" => "/workflow:invalid_signal_trigger_keys_flow"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "command"] and error.code == :unknown_key
+             end)
+    end
+
+    test "requires patterns for signal triggers" do
+      attrs = %{
+        "name" => "missing_signal_patterns_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "signal"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "patterns"] and error.code == :required
+             end)
+    end
+
+    test "requires schedule for scheduled triggers" do
+      attrs = %{
+        "name" => "missing_schedule_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "scheduled"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "schedule"] and error.code == :required
+             end)
+    end
+
     test "rejects unknown step keys" do
       attrs = %{
         "name" => "unknown_step_key_flow",
