@@ -158,4 +158,34 @@ defmodule JidoWorkflow.Workflow.TriggerConfigTest do
              ]
            end)
   end
+
+  test "load_document/1 rejects empty built-in trigger patterns", context do
+    config_path = Path.join(context.tmp_dir, "triggers.json")
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        "triggers" => [
+          %{
+            "id" => "trigger:signal:empty_patterns",
+            "workflow_id" => "example_workflow",
+            "type" => "signal",
+            "config" => %{
+              "patterns" => []
+            }
+          }
+        ]
+      })
+    )
+
+    assert {:error, errors} = TriggerConfig.load_document(config_path)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "patterns"]
+             ]
+           end)
+  end
 end

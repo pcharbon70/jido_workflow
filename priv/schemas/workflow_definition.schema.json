@@ -145,7 +145,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "file_system" },
-        "patterns": { "type": "array", "items": { "type": "string" } },
+        "patterns": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
         "events": {
           "type": "array",
           "items": {
@@ -170,7 +170,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "signal" },
-        "patterns": { "type": "array", "items": { "type": "string" } }
+        "patterns": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
       },
       "required": ["type", "patterns"]
     },

@@ -235,6 +235,46 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "requires non-empty patterns for signal triggers" do
+      attrs = %{
+        "name" => "empty_signal_patterns_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "signal",
+            "patterns" => []
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "patterns"] and error.code == :required
+             end)
+    end
+
+    test "requires non-empty patterns for file_system triggers" do
+      attrs = %{
+        "name" => "empty_file_system_patterns_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "file_system",
+            "patterns" => []
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "patterns"] and error.code == :required
+             end)
+    end
+
     test "requires schedule for scheduled triggers" do
       attrs = %{
         "name" => "missing_schedule_flow",

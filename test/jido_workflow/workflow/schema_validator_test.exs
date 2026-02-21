@@ -150,6 +150,34 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 enforces non-empty trigger patterns for built-in schemas" do
+    attrs = %{
+      "name" => "schema_empty_trigger_patterns_workflow",
+      "version" => "1.0.0",
+      "triggers" => [
+        %{
+          "type" => "file_system",
+          "patterns" => []
+        },
+        %{
+          "type" => "signal",
+          "patterns" => []
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "0"], ["triggers", "0", "patterns"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "1"], ["triggers", "1", "patterns"]]
+           end)
+  end
+
   test "validate_workflow/1 enforces built-in trigger event values" do
     attrs = %{
       "name" => "schema_invalid_trigger_events_workflow",
@@ -428,6 +456,47 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
                ["triggers", "0"],
                ["triggers", "0", "config"],
                ["triggers", "0", "config", "schedule"]
+             ]
+           end)
+  end
+
+  test "validate_triggers_config/1 enforces non-empty config patterns for built-in trigger types" do
+    attrs = %{
+      "triggers" => [
+        %{
+          "id" => "trigger:file_system:empty_patterns",
+          "workflow_id" => "schema_flow",
+          "type" => "file_system",
+          "config" => %{
+            "patterns" => []
+          }
+        },
+        %{
+          "id" => "trigger:signal:empty_patterns",
+          "workflow_id" => "schema_flow",
+          "type" => "signal",
+          "config" => %{
+            "patterns" => []
+          }
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_triggers_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "patterns"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "config"],
+               ["triggers", "1", "config", "patterns"]
              ]
            end)
   end
