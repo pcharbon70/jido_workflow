@@ -439,6 +439,74 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects whitespace-only outputs and depends_on entries" do
+    attrs = %{
+      "name" => "schema_whitespace_step_list_entries_workflow",
+      "version" => "1.0.0",
+      "steps" => [
+        %{
+          "name" => "parse_file",
+          "type" => "action",
+          "module" => "JidoCode.Actions.ParseElixirFile",
+          "outputs" => ["ast", " "],
+          "depends_on" => [" "]
+        },
+        %{
+          "name" => "ai_review",
+          "type" => "agent",
+          "agent" => "code_reviewer",
+          "depends_on" => ["\n"]
+        },
+        %{
+          "name" => "apply_skill",
+          "type" => "skill",
+          "module" => "JidoCode.Skills.Format",
+          "outputs" => ["\t"]
+        },
+        %{
+          "name" => "child_flow",
+          "type" => "sub_workflow",
+          "workflow" => "child_pipeline",
+          "depends_on" => ["  "]
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "0"], ["steps", "0", "outputs"], ["steps", "0", "outputs", "1"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["steps", "0"],
+               ["steps", "0", "depends_on"],
+               ["steps", "0", "depends_on", "0"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["steps", "1"],
+               ["steps", "1", "depends_on"],
+               ["steps", "1", "depends_on", "0"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "2"], ["steps", "2", "outputs"], ["steps", "2", "outputs", "0"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["steps", "3"],
+               ["steps", "3", "depends_on"],
+               ["steps", "3", "depends_on", "0"]
+             ]
+           end)
+  end
+
   test "validate_workflow/1 rejects whitespace-only signals.topic and return.value" do
     attrs = %{
       "name" => "schema_whitespace_signals_and_return_workflow",

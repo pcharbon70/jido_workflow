@@ -163,6 +163,32 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects whitespace-only outputs and depends_on entries" do
+      attrs = %{
+        "name" => "whitespace_step_list_entries_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "JidoCode.Actions.ParseElixirFile",
+            "outputs" => ["ast", " "],
+            "depends_on" => ["\n"]
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "outputs", "1"] and error.code == :invalid_value
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "depends_on", "0"] and error.code == :invalid_value
+             end)
+    end
+
     test "rejects whitespace-only signals.topic and return.value" do
       attrs = %{
         "name" => "whitespace_signal_topic_and_return_value_flow",
