@@ -322,7 +322,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             @manual_trigger_rejected,
             %{
               "trigger_id" => fetch_normalized_binary(signal.data, "trigger_id"),
-              "workflow_id" => fetch_normalized_binary(signal.data, "workflow_id"),
+              "workflow_id" => fetch_requested_workflow_id(signal.data),
               "command" => fetch_normalized_binary(signal.data, "command"),
               "reason" => format_reason(reason)
             },
@@ -987,7 +987,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp normalize_manual_trigger_request(data) when is_map(data) do
     trigger_id = normalize_optional_binary(fetch(data, "trigger_id"))
     command = normalize_optional_binary(fetch(data, "command"))
-    workflow_id = normalize_optional_binary(fetch(data, "workflow_id"))
+    workflow_id = fetch_requested_workflow_id(data)
     params = normalize_manual_trigger_params(data)
 
     cond do

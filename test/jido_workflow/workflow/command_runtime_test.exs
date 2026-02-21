@@ -1623,6 +1623,64 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
   end
 
+  test "handles workflow.trigger.manual.requested by command with id fallback disambiguation",
+       context do
+    write_workflow(context.tmp_dir, "command_flow")
+    write_workflow(context.tmp_dir, "command_flow_alt")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    _first_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow",
+        command: "/workflow:review"
+      )
+
+    second_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow_alt",
+        command: "/workflow:review"
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.trigger.manual.requested",
+                 %{
+                   "id" => "  command_flow_alt  ",
+                   "command" => "  /workflow:review  ",
+                   "params" => %{"value" => "from_id_fallback_disambiguation"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.manual.accepted",
+                      data: %{
+                        "trigger_id" => ^second_trigger_id,
+                        "workflow_id" => "command_flow_alt",
+                        "command" => "/workflow:review",
+                        "run_id" => run_id,
+                        "status" => "completed"
+                      }
+                    }},
+                   5_000
+
+    assert is_binary(run_id)
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{
+                        "workflow_id" => "command_flow_alt",
+                        "run_id" => ^run_id,
+                        "result" => %{"echo" => "from_id_fallback_disambiguation"}
+                      }
+                    }},
+                   5_000
+  end
+
   test "rejects workflow.trigger.manual.requested when command resolves to multiple triggers",
        context do
     write_workflow(context.tmp_dir, "command_flow")
@@ -1664,6 +1722,50 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
 
     assert String.contains?(reason, "ambiguous_manual_command")
+  end
+
+  test "echoes normalized id fallback in workflow.trigger.manual.rejected payloads", context do
+    write_workflow(context.tmp_dir, "command_flow")
+    write_workflow(context.tmp_dir, "command_flow_alt")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    _first_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow",
+        command: "/workflow:review"
+      )
+
+    _second_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow_alt",
+        command: "/workflow:review"
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.trigger.manual.requested",
+                 %{
+                   "id" => "  missing_workflow  ",
+                   "command" => "  /workflow:review  ",
+                   "params" => %{"value" => "from_missing_id_fallback"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.manual.rejected",
+                      data: %{
+                        "workflow_id" => "missing_workflow",
+                        "command" => "/workflow:review",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
   end
 
   test "normalizes command in workflow.trigger.manual.rejected payloads", context do
