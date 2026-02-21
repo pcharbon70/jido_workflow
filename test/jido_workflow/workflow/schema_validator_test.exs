@@ -217,6 +217,68 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_triggers_config/1 rejects unknown top-level keys" do
+    attrs = %{
+      "triggers" => [],
+      "unexpected" => true
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_triggers_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [[], ["unexpected"]]
+           end)
+  end
+
+  test "validate_triggers_config/1 rejects unsupported config keys for built-in trigger types" do
+    attrs = %{
+      "triggers" => [
+        %{
+          "id" => "trigger:signal:invalid_config",
+          "workflow_id" => "schema_flow",
+          "type" => "signal",
+          "config" => %{
+            "patterns" => ["workflow.schema.signal.requested"],
+            "schedule" => "*/5 * * * *"
+          }
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_triggers_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "schedule"]
+             ]
+           end)
+  end
+
+  test "validate_triggers_config/1 enforces required config fields for built-in trigger types" do
+    attrs = %{
+      "triggers" => [
+        %{
+          "id" => "trigger:scheduled:missing_schedule",
+          "workflow_id" => "schema_flow",
+          "type" => "scheduled",
+          "config" => %{}
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_triggers_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "schedule"]
+             ]
+           end)
+  end
+
   test "validate_workflow_config/1 accepts valid top-level config" do
     attrs = %{
       "workflow_dir" => ".jido_code/workflows",

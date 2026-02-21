@@ -26,6 +26,13 @@ defmodule JidoWorkflow.Workflow.Schema do
     "scheduled" => "scheduled_trigger",
     "manual" => "manual_trigger"
   }
+  @builtin_trigger_config_item_definitions %{
+    "file_system" => "file_system_trigger_item",
+    "git_hook" => "git_hook_trigger_item",
+    "signal" => "signal_trigger_item",
+    "scheduled" => "scheduled_trigger_item",
+    "manual" => "manual_trigger_item"
+  }
 
   @type schema :: map()
 
@@ -74,12 +81,26 @@ defmodule JidoWorkflow.Workflow.Schema do
   def triggers_config do
     with {:ok, schema} <- load_schema(@triggers_schema_path) do
       trigger_types = TriggerTypeRegistry.supported_types()
+      builtin_trigger_types = builtin_trigger_types()
+
+      builtin_trigger_item_one_of =
+        builtin_trigger_config_item_one_of(schema, builtin_trigger_types)
+
+      plugin_trigger_item_ref = [%{"$ref" => "#/definitions/plugin_trigger_item"}]
+
+      trigger_item_definition =
+        schema
+        |> get_in_path(["definitions", "trigger_item"], %{})
+        |> ensure_map()
+        |> put_in_path(["properties", "type"], %{"enum" => trigger_types})
+        |> Map.put("oneOf", builtin_trigger_item_one_of ++ plugin_trigger_item_ref)
 
       {:ok,
-       put_in_path(
-         schema,
-         ["properties", "triggers", "items", "properties", "type"],
-         %{"enum" => trigger_types}
+       schema
+       |> put_in_path(["definitions", "trigger_item"], trigger_item_definition)
+       |> put_in_path(
+         ["definitions", "plugin_trigger_item"],
+         plugin_trigger_item_definition(builtin_trigger_types)
        )}
     end
   end
@@ -139,6 +160,18 @@ defmodule JidoWorkflow.Workflow.Schema do
     end)
   end
 
+  defp builtin_trigger_config_item_one_of(schema, builtin_trigger_types) do
+    builtin_trigger_types
+    |> Enum.map(&Map.get(@builtin_trigger_config_item_definitions, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(fn definition_name ->
+      is_map(get_in_path(schema, ["definitions", definition_name], nil))
+    end)
+    |> Enum.map(fn definition_name ->
+      %{"$ref" => "#/definitions/#{definition_name}"}
+    end)
+  end
+
   defp plugin_step_definition([]) do
     %{
       "type" => "object",
@@ -177,6 +210,36 @@ defmodule JidoWorkflow.Workflow.Schema do
       "required" => ["type"],
       "properties" => %{
         "type" => %{"type" => "string", "not" => %{"enum" => builtin_trigger_types}}
+      }
+    }
+  end
+
+  defp plugin_trigger_item_definition([]) do
+    %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "required" => ["id", "workflow_id", "type"],
+      "properties" => %{
+        "id" => %{"type" => "string"},
+        "workflow_id" => %{"type" => "string"},
+        "type" => %{"type" => "string"},
+        "enabled" => %{"type" => "boolean"},
+        "config" => %{"type" => "object"}
+      }
+    }
+  end
+
+  defp plugin_trigger_item_definition(builtin_trigger_types) do
+    %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "required" => ["id", "workflow_id", "type"],
+      "properties" => %{
+        "id" => %{"type" => "string"},
+        "workflow_id" => %{"type" => "string"},
+        "type" => %{"type" => "string", "not" => %{"enum" => builtin_trigger_types}},
+        "enabled" => %{"type" => "boolean"},
+        "config" => %{"type" => "object"}
       }
     }
   end
