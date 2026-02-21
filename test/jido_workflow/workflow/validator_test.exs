@@ -216,6 +216,48 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects agent-only keys on action steps" do
+      attrs = %{
+        "name" => "invalid_action_step_keys_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "JidoCode.Actions.ParseElixirFile",
+            "mode" => "sync"
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "mode"] and error.code == :unknown_key
+             end)
+    end
+
+    test "rejects action-only keys on agent steps" do
+      attrs = %{
+        "name" => "invalid_agent_step_keys_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "ai_code_review",
+            "type" => "agent",
+            "agent" => "code_reviewer",
+            "module" => "JidoCode.Actions.ParseElixirFile"
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "module"] and error.code == :unknown_key
+             end)
+    end
+
     test "rejects unknown settings keys" do
       attrs = %{
         "name" => "unknown_settings_key_flow",

@@ -89,6 +89,27 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects keys not allowed for built-in step type schemas" do
+    attrs = %{
+      "name" => "schema_invalid_step_keys_workflow",
+      "version" => "1.0.0",
+      "steps" => [
+        %{
+          "name" => "parse_file",
+          "type" => "action",
+          "module" => "JidoWorkflow.TestActions.ParseFile",
+          "mode" => "sync"
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "0"], ["steps", "0", "mode"]]
+           end)
+  end
+
   test "validate_workflow/1 supports custom plugin step types" do
     assert :ok =
              PluginExtensions.register_step_type(

@@ -113,6 +113,7 @@
     },
     "action_step": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
         "type": { "const": "action" },
@@ -122,16 +123,19 @@
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "async": { "type": "boolean" },
         "optional": { "type": "boolean" },
+        "timeout_ms": { "type": "integer", "minimum": 1 },
         "max_retries": { "type": "integer", "minimum": 0 }
       },
       "required": ["name", "type", "module"]
     },
     "agent_step": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
         "type": { "const": "agent" },
         "agent": { "type": "string" },
+        "callback_signal": { "type": "string" },
         "inputs": { "type": ["object", "array"] },
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "mode": { "enum": ["sync", "async"] },
@@ -143,6 +147,7 @@
     },
     "skill_step": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
         "type": { "const": "skill" },
@@ -152,12 +157,14 @@
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "async": { "type": "boolean" },
         "optional": { "type": "boolean" },
+        "timeout_ms": { "type": "integer", "minimum": 1 },
         "max_retries": { "type": "integer", "minimum": 0 }
       },
       "required": ["name", "type", "module"]
     },
     "sub_workflow_step": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
         "type": { "const": "sub_workflow" },
@@ -165,7 +172,8 @@
         "inputs": { "type": ["object", "array"] },
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "condition": { "type": "string" },
-        "parallel": { "type": "boolean" }
+        "parallel": { "type": "boolean" },
+        "timeout_ms": { "type": "integer", "minimum": 1 }
       },
       "required": ["name", "type", "workflow"]
     }

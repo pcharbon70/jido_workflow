@@ -288,9 +288,17 @@ defmodule JidoWorkflow.Workflow.MarkdownParser do
 
   defp normalize_step(step) do
     step
-    |> Map.update("depends_on", nil, &coerce_to_string_list/1)
-    |> Map.update("outputs", nil, &coerce_to_string_list/1)
-    |> Map.update("inputs", nil, &coerce_pairs_list_to_map/1)
+    |> maybe_update("depends_on", &coerce_to_string_list/1)
+    |> maybe_update("outputs", &coerce_to_string_list/1)
+    |> maybe_update("inputs", &coerce_pairs_list_to_map/1)
+  end
+
+  defp maybe_update(map, key, updater) do
+    if Map.has_key?(map, key) do
+      Map.update!(map, key, updater)
+    else
+      map
+    end
   end
 
   defp coerce_to_string_list(nil), do: nil
