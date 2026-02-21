@@ -170,6 +170,61 @@ defmodule JidoWorkflow.Workflow.TriggerConfigTest do
            end)
   end
 
+  test "load_document/1 rejects whitespace-only identifiers and schedule or command values",
+       context do
+    config_path = Path.join(context.tmp_dir, "triggers.json")
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        "triggers" => [
+          %{
+            "id" => " ",
+            "workflow_id" => "example_workflow",
+            "type" => "manual",
+            "config" => %{
+              "command" => "\t"
+            }
+          },
+          %{
+            "id" => "trigger:scheduled:whitespace_schedule",
+            "workflow_id" => " ",
+            "type" => "scheduled",
+            "config" => %{
+              "schedule" => "   "
+            }
+          }
+        ]
+      })
+    )
+
+    assert {:error, errors} = TriggerConfig.load_document(config_path)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "0"], ["triggers", "0", "id"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "command"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "1"], ["triggers", "1", "workflow_id"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "config"],
+               ["triggers", "1", "config", "schedule"]
+             ]
+           end)
+  end
+
   test "load_document/1 rejects empty and blank trigger patterns", context do
     config_path = Path.join(context.tmp_dir, "triggers.json")
 

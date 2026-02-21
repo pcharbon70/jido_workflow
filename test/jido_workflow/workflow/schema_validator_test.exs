@@ -270,6 +270,40 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects whitespace-only scheduled and manual trigger strings" do
+    attrs = %{
+      "name" => "schema_whitespace_trigger_strings_workflow",
+      "version" => "1.0.0",
+      "triggers" => [
+        %{
+          "type" => "scheduled",
+          "schedule" => "   "
+        },
+        %{
+          "type" => "manual",
+          "command" => "\t"
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "schedule"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "command"]
+             ]
+           end)
+  end
+
   test "validate_workflow/1 enforces non-empty compensation action names" do
     attrs = %{
       "name" => "schema_empty_compensation_action_workflow",
@@ -613,6 +647,51 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
 
     assert Enum.any?(errors, fn error ->
              error.path in [["triggers", "0"], ["triggers", "0", "id"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "1"], ["triggers", "1", "workflow_id"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "config"],
+               ["triggers", "1", "config", "schedule"]
+             ]
+           end)
+  end
+
+  test "validate_triggers_config/1 rejects whitespace-only identifiers and schedule or command strings" do
+    attrs = %{
+      "triggers" => [
+        %{
+          "id" => " ",
+          "workflow_id" => "schema_flow",
+          "type" => "manual",
+          "config" => %{"command" => "\t"}
+        },
+        %{
+          "id" => "trigger:scheduled:whitespace_schedule",
+          "workflow_id" => " ",
+          "type" => "scheduled",
+          "config" => %{"schedule" => "   "}
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_triggers_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "0"], ["triggers", "0", "id"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "command"]
+             ]
            end)
 
     assert Enum.any?(errors, fn error ->
