@@ -142,6 +142,27 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects whitespace-only callback_signal values" do
+      attrs = %{
+        "name" => "example_workflow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "ai_code_review",
+            "type" => "agent",
+            "agent" => "code_reviewer",
+            "callback_signal" => "  "
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "callback_signal"] and error.code == :invalid_value
+             end)
+    end
+
     test "rejects unknown top-level keys" do
       attrs = %{
         "name" => "unknown_top_level_key_flow",
