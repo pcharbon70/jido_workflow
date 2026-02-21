@@ -387,6 +387,26 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects whitespace-only command for manual triggers" do
+      attrs = %{
+        "name" => "manual_trigger_whitespace_command_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "manual",
+            "command" => "\t"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "command"] and error.code == :invalid_value
+             end)
+    end
+
     test "rejects unsupported file_system trigger events" do
       attrs = %{
         "name" => "invalid_file_system_trigger_events_flow",
