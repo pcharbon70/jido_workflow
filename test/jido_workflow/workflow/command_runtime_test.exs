@@ -26,6 +26,20 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTestActions.DelayedValue do
   end
 end
 
+defmodule JidoWorkflow.Workflow.CommandRuntimeTestActions.EchoWithIdProbe do
+  use Jido.Action,
+    name: "command_runtime_echo_with_id_probe",
+    schema: [
+      value: [type: :string, required: true],
+      id: [type: :any, required: false]
+    ]
+
+  @impl true
+  def run(%{value: value} = params, _context) do
+    {:ok, %{"echo" => value, "id_seen" => Map.get(params, :id)}}
+  end
+end
+
 defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
   use ExUnit.Case, async: true
 
@@ -1788,6 +1802,65 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
   end
 
+  test "does not include id fallback key in implicit workflow.trigger.manual.requested params",
+       context do
+    write_id_probe_workflow(context.tmp_dir, "command_flow")
+    write_id_probe_workflow(context.tmp_dir, "command_flow_alt")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    _first_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow",
+        command: "/workflow:review"
+      )
+
+    second_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow_alt",
+        command: "/workflow:review"
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.trigger.manual.requested",
+                 %{
+                   "id" => "  command_flow_alt  ",
+                   "command" => "  /workflow:review  ",
+                   "value" => "from_implicit_id_params"
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.manual.accepted",
+                      data: %{
+                        "trigger_id" => ^second_trigger_id,
+                        "workflow_id" => "command_flow_alt",
+                        "command" => "/workflow:review",
+                        "run_id" => run_id,
+                        "status" => "completed"
+                      }
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{
+                        "workflow_id" => "command_flow_alt",
+                        "run_id" => ^run_id,
+                        "result" => %{
+                          "echo" => "from_implicit_id_params",
+                          "id_seen" => nil
+                        }
+                      }
+                    }},
+                   5_000
+  end
+
   test "rejects workflow.trigger.manual.requested when command resolves to multiple triggers",
        context do
     write_workflow(context.tmp_dir, "command_flow")
@@ -2089,6 +2162,34 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     - **module**: JidoWorkflow.Workflow.CommandRuntimeTestActions.Echo
     - **inputs**:
       - value: `input:value`
+
+    ## Return
+    - **value**: echo
+    """
+
+    path = Path.join(dir, "#{workflow_name}.md")
+    File.write!(path, markdown)
+    path
+  end
+
+  defp write_id_probe_workflow(dir, workflow_name) do
+    markdown = """
+    ---
+    name: #{workflow_name}
+    version: "1.0.0"
+    enabled: true
+    ---
+
+    # #{workflow_name}
+
+    ## Steps
+
+    ### echo
+    - **type**: action
+    - **module**: JidoWorkflow.Workflow.CommandRuntimeTestActions.EchoWithIdProbe
+    - **inputs**:
+      - value: `input:value`
+      - id: `input:id`
 
     ## Return
     - **value**: echo
