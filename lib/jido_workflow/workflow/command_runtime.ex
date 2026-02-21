@@ -960,7 +960,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp normalize_start_request(data) do
-    workflow_id = fetch(data, "workflow_id")
+    workflow_id = normalize_optional_binary(fetch(data, "workflow_id"))
     run_id = normalize_optional_binary(fetch(data, "run_id"))
     inputs = normalize_start_inputs(data)
 
@@ -1096,9 +1096,17 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp optional_binary_filter(data, key) do
     case fetch(data, key) do
-      nil -> {:ok, nil}
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+      nil ->
+        {:ok, nil}
+
+      value ->
+        normalized = normalize_optional_binary(value)
+
+        if valid_binary?(normalized) do
+          {:ok, normalized}
+        else
+          {:error, {:missing_or_invalid, String.to_atom(key)}}
+        end
     end
   end
 
@@ -1119,13 +1127,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp parse_status_filter(status, key) when is_binary(status) do
-    case String.downcase(status) do
-      "running" -> {:ok, :running}
-      "paused" -> {:ok, :paused}
-      "completed" -> {:ok, :completed}
-      "failed" -> {:ok, :failed}
-      "cancelled" -> {:ok, :cancelled}
-      _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+    case normalize_optional_binary(status) do
+      nil ->
+        {:error, {:missing_or_invalid, String.to_atom(key)}}
+
+      normalized ->
+        case String.downcase(normalized) do
+          "running" -> {:ok, :running}
+          "paused" -> {:ok, :paused}
+          "completed" -> {:ok, :completed}
+          "failed" -> {:ok, :failed}
+          "cancelled" -> {:ok, :cancelled}
+          _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+        end
     end
   end
 
@@ -1146,12 +1160,18 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp parse_boolean_filter(value, key) when is_binary(value) do
-    case String.downcase(value) do
-      "true" -> {:ok, true}
-      "false" -> {:ok, false}
-      "1" -> {:ok, true}
-      "0" -> {:ok, false}
-      _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+    case normalize_optional_binary(value) do
+      nil ->
+        {:error, {:missing_or_invalid, String.to_atom(key)}}
+
+      normalized ->
+        case String.downcase(normalized) do
+          "true" -> {:ok, true}
+          "false" -> {:ok, false}
+          "1" -> {:ok, true}
+          "0" -> {:ok, false}
+          _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
+        end
     end
   end
 
@@ -1167,7 +1187,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
         {:ok, value}
 
       value when is_binary(value) ->
-        case Integer.parse(value) do
+        normalized = String.trim(value)
+
+        case Integer.parse(normalized) do
           {parsed, ""} when parsed > 0 -> {:ok, parsed}
           _ -> {:error, {:missing_or_invalid, String.to_atom(key)}}
         end
@@ -1178,17 +1200,22 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp fetch_required_run_id(data) do
-    case fetch(data, "run_id") do
-      run_id when is_binary(run_id) and run_id != "" -> {:ok, run_id}
+    case fetch(data, "run_id") |> normalize_optional_binary() do
+      run_id when is_binary(run_id) -> {:ok, run_id}
       _ -> {:error, {:missing_or_invalid, :run_id}}
     end
   end
 
   defp fetch_cancel_reason(data) do
     case fetch(data, "reason") do
-      reason when is_binary(reason) and reason != "" -> reason
-      reason when is_atom(reason) -> reason
-      _ -> :cancelled
+      reason when is_binary(reason) ->
+        normalize_optional_binary(reason) || :cancelled
+
+      reason when is_atom(reason) ->
+        reason
+
+      _ ->
+        :cancelled
     end
   end
 
@@ -1198,16 +1225,23 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
         {:ok, mode}
 
       mode when is_binary(mode) ->
-        case String.downcase(mode) do
-          "auto" -> {:ok, :auto}
-          "step" -> {:ok, :step}
-          _ -> {:error, {:missing_or_invalid, :mode}}
-        end
+        parse_mode(mode)
 
       _ ->
         {:error, {:missing_or_invalid, :mode}}
     end
   end
+
+  defp parse_mode(mode) when is_binary(mode) do
+    case normalize_optional_binary(mode) do
+      nil -> {:error, {:missing_or_invalid, :mode}}
+      normalized -> normalize_mode_value(String.downcase(normalized))
+    end
+  end
+
+  defp normalize_mode_value("auto"), do: {:ok, :auto}
+  defp normalize_mode_value("step"), do: {:ok, :step}
+  defp normalize_mode_value(_mode), do: {:error, {:missing_or_invalid, :mode}}
 
   defp publish_command_response(bus, type, payload, request_signal) do
     response =
@@ -1566,10 +1600,16 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp normalize_backend(value) when value in [:direct, :strategy], do: value
 
   defp normalize_backend(value) when is_binary(value) do
-    case String.downcase(value) do
-      "direct" -> :direct
-      "strategy" -> :strategy
-      _ -> nil
+    case normalize_optional_binary(value) do
+      nil ->
+        nil
+
+      normalized ->
+        case String.downcase(normalized) do
+          "direct" -> :direct
+          "strategy" -> :strategy
+          _ -> nil
+        end
     end
   end
 
