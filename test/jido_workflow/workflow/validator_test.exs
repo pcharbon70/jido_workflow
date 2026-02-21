@@ -467,5 +467,26 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
                error.path == ["error_handling", "0", "inputs"] and error.code == :invalid_type
              end)
     end
+
+    test "rejects input defaults that do not match declared input types" do
+      attrs = %{
+        "name" => "invalid_input_default_type_flow",
+        "version" => "1.0.0",
+        "inputs" => [
+          %{
+            "name" => "retry_count",
+            "type" => "integer",
+            "default" => "3"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["inputs", "0", "default"] and error.code == :invalid_type
+             end)
+    end
   end
 end

@@ -193,6 +193,27 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 enforces input default type compatibility" do
+    attrs = %{
+      "name" => "schema_invalid_input_default_type_workflow",
+      "version" => "1.0.0",
+      "inputs" => [
+        %{
+          "name" => "retry_count",
+          "type" => "integer",
+          "default" => "3"
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["inputs", "0"], ["inputs", "0", "default"]]
+           end)
+  end
+
   test "validate_workflow/1 supports custom plugin step types" do
     assert :ok =
              PluginExtensions.register_step_type(
