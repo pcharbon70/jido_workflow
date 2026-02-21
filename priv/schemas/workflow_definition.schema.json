@@ -80,7 +80,7 @@
       "additionalProperties": false,
       "required": ["name", "type"],
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "enum": ["string", "integer", "boolean", "map", "list"] },
         "required": { "type": "boolean", "default": false },
         "default": {},
@@ -205,7 +205,7 @@
       "additionalProperties": false,
       "required": ["handler"],
       "properties": {
-        "handler": { "type": "string", "minLength": 1 },
+        "handler": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "action": { "type": "string", "minLength": 1 },
         "inputs": { "type": ["object", "array"] }
       },
@@ -218,7 +218,10 @@
             }
           },
           "then": {
-            "required": ["action"]
+            "required": ["action"],
+            "properties": {
+              "action": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
+            }
           }
         }
       ]
@@ -237,9 +240,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "action" },
-        "module": { "type": "string", "minLength": 1 },
+        "module": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] },
         "outputs": { "type": "array", "items": { "type": "string" } },
         "depends_on": { "type": "array", "items": { "type": "string" } },
@@ -254,9 +257,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "agent" },
-        "agent": { "type": "string", "minLength": 1 },
+        "agent": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "callback_signal": { "type": "string", "minLength": 1 },
         "inputs": { "type": ["object", "array"] },
         "depends_on": { "type": "array", "items": { "type": "string" } },
@@ -271,9 +274,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "skill" },
-        "module": { "type": "string", "minLength": 1 },
+        "module": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] },
         "outputs": { "type": "array", "items": { "type": "string" } },
         "depends_on": { "type": "array", "items": { "type": "string" } },
@@ -288,9 +291,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "type": { "const": "sub_workflow" },
-        "workflow": { "type": "string", "minLength": 1 },
+        "workflow": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] },
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "condition": { "type": "string" },
