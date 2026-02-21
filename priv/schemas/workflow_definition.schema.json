@@ -90,16 +90,61 @@
   "definitions": {
     "trigger": {
       "type": "object",
-      "additionalProperties": false,
       "required": ["type"],
+      "oneOf": [
+        { "$ref": "#/definitions/file_system_trigger" },
+        { "$ref": "#/definitions/git_hook_trigger" },
+        { "$ref": "#/definitions/signal_trigger" },
+        { "$ref": "#/definitions/scheduled_trigger" },
+        { "$ref": "#/definitions/manual_trigger" }
+      ]
+    },
+    "file_system_trigger": {
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "type": { "enum": ["file_system", "git_hook", "signal", "scheduled", "manual"] },
+        "type": { "const": "file_system" },
         "patterns": { "type": "array", "items": { "type": "string" } },
         "events": { "type": "array", "items": { "type": "string" } },
-        "schedule": { "type": "string" },
-        "command": { "type": "string" },
         "debounce_ms": { "type": "integer", "minimum": 0 }
-      }
+      },
+      "required": ["type", "patterns"]
+    },
+    "git_hook_trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "git_hook" },
+        "events": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["type"]
+    },
+    "signal_trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "signal" },
+        "patterns": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["type", "patterns"]
+    },
+    "scheduled_trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "scheduled" },
+        "schedule": { "type": "string" }
+      },
+      "required": ["type", "schedule"]
+    },
+    "manual_trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "manual" },
+        "command": { "type": "string" }
+      },
+      "required": ["type"]
     },
     "step": {
       "type": "object",
