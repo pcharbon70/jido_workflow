@@ -150,6 +150,49 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects unknown keys for error_handler entries" do
+    attrs = %{
+      "name" => "schema_invalid_error_handler_keys_workflow",
+      "version" => "1.0.0",
+      "error_handling" => [
+        %{
+          "handler" => "compensate:parse_file",
+          "action" => "JidoWorkflow.TestActions.ParseFile",
+          "unexpected_handler_key" => true
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["error_handling", "0"],
+               ["error_handling", "0", "unexpected_handler_key"]
+             ]
+           end)
+  end
+
+  test "validate_workflow/1 enforces action for compensation handlers" do
+    attrs = %{
+      "name" => "schema_missing_compensation_action_workflow",
+      "version" => "1.0.0",
+      "error_handling" => [
+        %{
+          "handler" => "compensate:parse_file"
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["error_handling", "0"], ["error_handling", "0", "action"]]
+           end)
+  end
+
   test "validate_workflow/1 supports custom plugin step types" do
     assert :ok =
              PluginExtensions.register_step_type(

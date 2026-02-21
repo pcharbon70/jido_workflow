@@ -386,5 +386,86 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
                error.path == ["return", "unexpected_return_key"] and error.code == :unknown_key
              end)
     end
+
+    test "rejects unknown error_handler keys" do
+      attrs = %{
+        "name" => "unknown_error_handler_key_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "compensate:parse_file",
+            "action" => "JidoWorkflow.TestActions.ParseFile",
+            "unexpected_handler_key" => true
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "unexpected_handler_key"] and
+                 error.code == :unknown_key
+             end)
+    end
+
+    test "requires handler for error_handler entries" do
+      attrs = %{
+        "name" => "missing_error_handler_name_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "action" => "JidoWorkflow.TestActions.ParseFile"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "handler"] and error.code == :required
+             end)
+    end
+
+    test "requires action for compensation handlers" do
+      attrs = %{
+        "name" => "missing_compensation_action_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "compensate:parse_file"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "action"] and error.code == :required
+             end)
+    end
+
+    test "validates inputs type for error_handler entries" do
+      attrs = %{
+        "name" => "invalid_error_handler_inputs_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "compensate:parse_file",
+            "action" => "JidoWorkflow.TestActions.ParseFile",
+            "inputs" => "invalid"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "inputs"] and error.code == :invalid_type
+             end)
+    end
   end
 end

@@ -74,9 +74,7 @@
     },
     "error_handling": {
       "type": "array",
-      "items": {
-        "type": "object"
-      }
+      "items": { "$ref": "#/definitions/error_handler" }
     },
     "return": {
       "type": "object",
@@ -145,6 +143,29 @@
         "command": { "type": "string" }
       },
       "required": ["type"]
+    },
+    "error_handler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["handler"],
+      "properties": {
+        "handler": { "type": "string" },
+        "action": { "type": "string" },
+        "inputs": { "type": ["object", "array"] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["handler"],
+            "properties": {
+              "handler": { "type": "string", "pattern": "^compensate:" }
+            }
+          },
+          "then": {
+            "required": ["action"]
+          }
+        }
+      ]
     },
     "step": {
       "type": "object",
