@@ -684,7 +684,10 @@ defmodule JidoWorkflow.Workflow.Validator do
     {publish_events, errors} =
       optional_string_list(signals, :publish_events, path ++ ["publish_events"], errors)
 
-    errors = maybe_add_unsupported_event_error(errors, publish_events, path ++ ["publish_events"])
+    errors =
+      errors
+      |> maybe_add_non_empty_optional_string_error(topic, path ++ ["topic"])
+      |> maybe_add_unsupported_event_error(publish_events, path ++ ["publish_events"])
 
     {%Signals{topic: topic, publish_events: publish_events}, errors}
   end
@@ -769,6 +772,8 @@ defmodule JidoWorkflow.Workflow.Validator do
         is_binary(transform) -> errors
         true -> error(errors, path ++ ["transform"], :invalid_type, "transform must be a string")
       end
+
+    errors = maybe_add_non_empty_optional_string_error(errors, value, path ++ ["value"])
 
     {%Return{value: value, transform: transform}, errors}
   end

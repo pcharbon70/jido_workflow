@@ -50,7 +50,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "topic": { "type": "string" },
+        "topic": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "publish_events": {
           "type": "array",
           "items": { "enum": ["step_started", "step_completed", "step_failed", "workflow_complete", "agent_state"] }
@@ -69,7 +69,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "value": { "type": "string" },
+        "value": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "transform": { "type": "string" }
       }
     }
