@@ -80,7 +80,7 @@
       "additionalProperties": false,
       "required": ["name", "type"],
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
         "type": { "enum": ["string", "integer", "boolean", "map", "list"] },
         "required": { "type": "boolean", "default": false },
         "default": {},
@@ -179,7 +179,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "scheduled" },
-        "schedule": { "type": "string" }
+        "schedule": { "type": "string", "minLength": 1 }
       },
       "required": ["type", "schedule"]
     },
@@ -188,7 +188,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "manual" },
-        "command": { "type": "string" }
+        "command": { "type": "string", "minLength": 1 }
       },
       "required": ["type"]
     },
@@ -197,8 +197,8 @@
       "additionalProperties": false,
       "required": ["handler"],
       "properties": {
-        "handler": { "type": "string" },
-        "action": { "type": "string" },
+        "handler": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1 },
         "inputs": { "type": ["object", "array"] }
       },
       "allOf": [
@@ -229,9 +229,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
         "type": { "const": "action" },
-        "module": { "type": "string" },
+        "module": { "type": "string", "minLength": 1 },
         "inputs": { "type": ["object", "array"] },
         "outputs": { "type": "array", "items": { "type": "string" } },
         "depends_on": { "type": "array", "items": { "type": "string" } },
@@ -246,10 +246,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
         "type": { "const": "agent" },
-        "agent": { "type": "string" },
-        "callback_signal": { "type": "string" },
+        "agent": { "type": "string", "minLength": 1 },
+        "callback_signal": { "type": "string", "minLength": 1 },
         "inputs": { "type": ["object", "array"] },
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "mode": { "enum": ["sync", "async"] },
@@ -263,9 +263,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
         "type": { "const": "skill" },
-        "module": { "type": "string" },
+        "module": { "type": "string", "minLength": 1 },
         "inputs": { "type": ["object", "array"] },
         "outputs": { "type": "array", "items": { "type": "string" } },
         "depends_on": { "type": "array", "items": { "type": "string" } },
@@ -280,9 +280,9 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
         "type": { "const": "sub_workflow" },
-        "workflow": { "type": "string" },
+        "workflow": { "type": "string", "minLength": 1 },
         "inputs": { "type": ["object", "array"] },
         "depends_on": { "type": "array", "items": { "type": "string" } },
         "condition": { "type": "string" },

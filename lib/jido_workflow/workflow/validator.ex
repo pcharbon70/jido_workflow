@@ -334,8 +334,17 @@ defmodule JidoWorkflow.Workflow.Validator do
     end
   end
 
-  defp validate_trigger_requirements(errors, "scheduled", _patterns, nil, path) do
-    error(errors, path ++ ["schedule"], :required, "schedule is required for scheduled triggers")
+  defp validate_trigger_requirements(errors, "scheduled", _patterns, schedule, path) do
+    if present_string?(schedule) do
+      errors
+    else
+      error(
+        errors,
+        path ++ ["schedule"],
+        :required,
+        "schedule is required for scheduled triggers"
+      )
+    end
   end
 
   defp validate_trigger_requirements(errors, _type, _patterns, _schedule, _path), do: errors
@@ -456,20 +465,41 @@ defmodule JidoWorkflow.Workflow.Validator do
     {nil, error(errors, path, :invalid_type, "step must be a map")}
   end
 
-  defp validate_step_requirements(errors, "action", nil, _agent, _workflow, path) do
-    error(errors, path ++ ["module"], :required, "module is required for action steps")
+  defp validate_step_requirements(errors, "action", module, _agent, _workflow, path) do
+    if present_string?(module) do
+      errors
+    else
+      error(errors, path ++ ["module"], :required, "module is required for action steps")
+    end
   end
 
-  defp validate_step_requirements(errors, "skill", nil, _agent, _workflow, path) do
-    error(errors, path ++ ["module"], :required, "module is required for skill steps")
+  defp validate_step_requirements(errors, "skill", module, _agent, _workflow, path) do
+    if present_string?(module) do
+      errors
+    else
+      error(errors, path ++ ["module"], :required, "module is required for skill steps")
+    end
   end
 
-  defp validate_step_requirements(errors, "agent", _module, nil, _workflow, path) do
-    error(errors, path ++ ["agent"], :required, "agent is required for agent steps")
+  defp validate_step_requirements(errors, "agent", _module, agent, _workflow, path) do
+    if present_string?(agent) do
+      errors
+    else
+      error(errors, path ++ ["agent"], :required, "agent is required for agent steps")
+    end
   end
 
-  defp validate_step_requirements(errors, "sub_workflow", _module, _agent, nil, path) do
-    error(errors, path ++ ["workflow"], :required, "workflow is required for sub_workflow steps")
+  defp validate_step_requirements(errors, "sub_workflow", _module, _agent, workflow, path) do
+    if present_string?(workflow) do
+      errors
+    else
+      error(
+        errors,
+        path ++ ["workflow"],
+        :required,
+        "workflow is required for sub_workflow steps"
+      )
+    end
   end
 
   defp validate_step_requirements(errors, _type, _module, _agent, _workflow, _path), do: errors
@@ -679,7 +709,7 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp maybe_add_missing_compensation_action_error(errors, handler_name, action, path) do
-    if compensation_handler_name?(handler_name) and is_nil(action) do
+    if compensation_handler_name?(handler_name) and not present_string?(action) do
       error(errors, path ++ ["action"], :required, "action is required for compensation handlers")
     else
       errors
@@ -717,10 +747,15 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp required_string(attrs, key, path, regex, regex_message, errors) do
     case get(attrs, key) do
       value when is_binary(value) ->
-        if regex && not Regex.match?(regex, value) do
-          {value, error(errors, path, :invalid_format, regex_message)}
-        else
-          {value, errors}
+        cond do
+          String.trim(value) == "" ->
+            {value, error(errors, path, :required, "#{last(path)} is required")}
+
+          regex && not Regex.match?(regex, value) ->
+            {value, error(errors, path, :invalid_format, regex_message)}
+
+          true ->
+            {value, errors}
         end
 
       nil ->
@@ -830,4 +865,7 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp normalize_key(key) when is_binary(key), do: key
   defp normalize_key(key) when is_atom(key), do: Atom.to_string(key)
   defp normalize_key(key), do: to_string(key)
+
+  defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_string?(_value), do: false
 end
