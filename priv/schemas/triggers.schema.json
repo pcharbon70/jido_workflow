@@ -44,7 +44,12 @@
           "required": ["patterns"],
           "properties": {
             "patterns": { "type": "array", "items": { "type": "string" } },
-            "events": { "type": "array", "items": { "type": "string" } },
+            "events": {
+              "type": "array",
+              "items": {
+                "enum": ["created", "modified", "deleted", "moved", "renamed", "closed", "updated"]
+              }
+            },
             "debounce_ms": { "type": "integer", "minimum": 0 },
             "root_dir": { "type": "string" }
           }
@@ -64,7 +69,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "events": { "type": "array", "items": { "type": "string" } },
+            "events": { "type": "array", "items": { "enum": ["commit", "push", "merge"] } },
             "repo_path": { "type": "string" }
           }
         }

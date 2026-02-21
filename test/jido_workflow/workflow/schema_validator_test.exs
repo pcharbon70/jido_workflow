@@ -150,6 +150,43 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 enforces built-in trigger event values" do
+    attrs = %{
+      "name" => "schema_invalid_trigger_events_workflow",
+      "version" => "1.0.0",
+      "triggers" => [
+        %{
+          "type" => "file_system",
+          "patterns" => ["lib/**/*.ex"],
+          "events" => ["pre_commit"]
+        },
+        %{
+          "type" => "git_hook",
+          "events" => ["pre_commit"]
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "events"],
+               ["triggers", "0", "events", "0"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "events"],
+               ["triggers", "1", "events", "0"]
+             ]
+           end)
+  end
+
   test "validate_workflow/1 rejects unknown keys for error_handler entries" do
     attrs = %{
       "name" => "schema_invalid_error_handler_keys_workflow",
@@ -391,6 +428,50 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
                ["triggers", "0"],
                ["triggers", "0", "config"],
                ["triggers", "0", "config", "schedule"]
+             ]
+           end)
+  end
+
+  test "validate_triggers_config/1 enforces built-in trigger config event values" do
+    attrs = %{
+      "triggers" => [
+        %{
+          "id" => "trigger:file_system:invalid_events",
+          "workflow_id" => "schema_flow",
+          "type" => "file_system",
+          "config" => %{
+            "patterns" => ["lib/**/*.ex"],
+            "events" => ["pre_commit"]
+          }
+        },
+        %{
+          "id" => "trigger:git_hook:invalid_events",
+          "workflow_id" => "schema_flow",
+          "type" => "git_hook",
+          "config" => %{
+            "events" => ["pre_commit"]
+          }
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_triggers_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "events"],
+               ["triggers", "0", "config", "events", "0"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "config"],
+               ["triggers", "1", "config", "events"],
+               ["triggers", "1", "config", "events", "0"]
              ]
            end)
   end

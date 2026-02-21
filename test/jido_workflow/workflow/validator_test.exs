@@ -254,6 +254,47 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects unsupported file_system trigger events" do
+      attrs = %{
+        "name" => "invalid_file_system_trigger_events_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "file_system",
+            "patterns" => ["lib/**/*.ex"],
+            "events" => ["pre_commit"]
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "events", "0"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects unsupported git_hook trigger events" do
+      attrs = %{
+        "name" => "invalid_git_hook_trigger_events_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "git_hook",
+            "events" => ["pre_commit"]
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "events", "0"] and error.code == :invalid_value
+             end)
+    end
+
     test "rejects unknown step keys" do
       attrs = %{
         "name" => "unknown_step_key_flow",

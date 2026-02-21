@@ -146,7 +146,12 @@
       "properties": {
         "type": { "const": "file_system" },
         "patterns": { "type": "array", "items": { "type": "string" } },
-        "events": { "type": "array", "items": { "type": "string" } },
+        "events": {
+          "type": "array",
+          "items": {
+            "enum": ["created", "modified", "deleted", "moved", "renamed", "closed", "updated"]
+          }
+        },
         "debounce_ms": { "type": "integer", "minimum": 0 }
       },
       "required": ["type", "patterns"]
@@ -156,7 +161,7 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "git_hook" },
-        "events": { "type": "array", "items": { "type": "string" } }
+        "events": { "type": "array", "items": { "enum": ["commit", "push", "merge"] } }
       },
       "required": ["type"]
     },

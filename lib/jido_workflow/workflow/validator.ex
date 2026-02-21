@@ -26,6 +26,8 @@ defmodule JidoWorkflow.Workflow.Validator do
   @on_failure_types ~w(compensate halt continue)
   @agent_modes ~w(sync async)
   @publish_events ~w(step_started step_completed step_failed workflow_complete agent_state)
+  @file_system_events ~w(created modified deleted moved renamed closed updated)
+  @git_hook_events ~w(commit push merge)
   @definition_keys ~w(
     name
     version
@@ -293,6 +295,7 @@ defmodule JidoWorkflow.Workflow.Validator do
       errors
       |> validate_trigger_requirements(type, patterns, schedule, path)
       |> maybe_add_minimum_integer_error(debounce_ms, 0, path ++ ["debounce_ms"])
+      |> maybe_add_trigger_event_errors(type, events, path ++ ["events"])
 
     normalized = %Trigger{
       type: type || "",
@@ -336,6 +339,34 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp validate_trigger_requirements(errors, _type, _patterns, _schedule, _path), do: errors
+
+  defp maybe_add_trigger_event_errors(errors, _type, nil, _path), do: errors
+
+  defp maybe_add_trigger_event_errors(errors, "file_system", events, path) when is_list(events) do
+    add_unsupported_trigger_event_errors(errors, events, @file_system_events, path, "file_system")
+  end
+
+  defp maybe_add_trigger_event_errors(errors, "git_hook", events, path) when is_list(events) do
+    add_unsupported_trigger_event_errors(errors, events, @git_hook_events, path, "git_hook")
+  end
+
+  defp maybe_add_trigger_event_errors(errors, _type, _events, _path), do: errors
+
+  defp add_unsupported_trigger_event_errors(errors, events, allowed_events, path, trigger_type) do
+    Enum.with_index(events)
+    |> Enum.reduce(errors, fn {event, index}, err_acc ->
+      if event in allowed_events do
+        err_acc
+      else
+        error(
+          err_acc,
+          path ++ [Integer.to_string(index)],
+          :invalid_value,
+          "unsupported #{trigger_type} event: #{event}; must be one of: #{Enum.join(allowed_events, ", ")}"
+        )
+      end
+    end)
+  end
 
   defp validate_steps(steps, path, step_types, errors) when is_list(steps) do
     steps
