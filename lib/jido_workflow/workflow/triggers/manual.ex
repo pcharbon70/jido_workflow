@@ -96,8 +96,12 @@ defmodule JidoWorkflow.Workflow.Triggers.Manual do
   defp normalize_backend(value) when value in [:direct, :strategy], do: value
   defp normalize_backend(_value), do: nil
 
-  defp normalize_command(command, _workflow_id) when is_binary(command) and command != "",
-    do: command
+  defp normalize_command(command, workflow_id) when is_binary(command) do
+    case String.trim(command) do
+      "" -> normalize_command(nil, workflow_id)
+      normalized -> normalized
+    end
+  end
 
   defp normalize_command(_command, workflow_id)
        when is_binary(workflow_id) and workflow_id != "" do

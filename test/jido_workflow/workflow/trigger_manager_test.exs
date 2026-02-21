@@ -225,6 +225,48 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
                "/workflow:flow_default",
                process_registry: context.process_registry
              )
+
+    assert {:ok, _pid} =
+             TriggerSupervisor.start_trigger(
+               %{
+                 id: "manual:default:whitespace",
+                 workflow_id: "flow_default_whitespace",
+                 type: "manual",
+                 command: " \t ",
+                 workflow_registry: context.workflow_registry,
+                 bus: context.bus,
+                 process_registry: context.process_registry
+               },
+               supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry
+             )
+
+    assert {:ok, "manual:default:whitespace"} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "/workflow:flow_default_whitespace",
+               process_registry: context.process_registry
+             )
+
+    assert {:ok, _pid} =
+             TriggerSupervisor.start_trigger(
+               %{
+                 id: "manual:trimmed:one",
+                 workflow_id: "flow_trimmed",
+                 type: "manual",
+                 command: "  /workflow:trimmed  ",
+                 workflow_registry: context.workflow_registry,
+                 bus: context.bus,
+                 process_registry: context.process_registry
+               },
+               supervisor: context.trigger_supervisor,
+               process_registry: context.process_registry
+             )
+
+    assert {:ok, "manual:trimmed:one"} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "/workflow:trimmed",
+               process_registry: context.process_registry
+             )
   end
 
   test "sync_from_registry loads and runs global triggers from triggers.json", context do
