@@ -1584,7 +1584,13 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     end
   end
 
-  defp normalize_optional_binary(value) when is_binary(value) and value != "", do: value
+  defp normalize_optional_binary(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
   defp normalize_optional_binary(_value), do: nil
 
   defp format_reason(reason) when is_binary(reason), do: reason
@@ -1632,7 +1638,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp to_signal_value(value) when is_list(value), do: Enum.map(value, &to_signal_value/1)
   defp to_signal_value(value), do: inspect(value)
 
-  defp valid_binary?(value), do: is_binary(value) and value != ""
+  defp valid_binary?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp fetch(map, key) when is_map(map) and is_binary(key) do
     case Map.fetch(map, key) do
