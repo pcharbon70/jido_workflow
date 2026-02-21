@@ -206,7 +206,7 @@
       "required": ["handler"],
       "properties": {
         "handler": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
-        "action": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] }
       },
       "allOf": [
