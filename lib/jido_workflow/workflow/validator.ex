@@ -294,6 +294,7 @@ defmodule JidoWorkflow.Workflow.Validator do
     errors =
       errors
       |> validate_trigger_requirements(type, patterns, schedule, path)
+      |> maybe_add_pattern_entry_errors(type, patterns, path ++ ["patterns"])
       |> maybe_add_minimum_integer_error(debounce_ms, 0, path ++ ["debounce_ms"])
       |> maybe_add_trigger_event_errors(type, events, path ++ ["events"])
 
@@ -348,6 +349,27 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp validate_trigger_requirements(errors, _type, _patterns, _schedule, _path), do: errors
+
+  defp maybe_add_pattern_entry_errors(errors, _type, nil, _path), do: errors
+
+  defp maybe_add_pattern_entry_errors(errors, type, patterns, path)
+       when type in ["file_system", "signal"] and is_list(patterns) do
+    Enum.with_index(patterns)
+    |> Enum.reduce(errors, fn {pattern, index}, err_acc ->
+      if present_string?(pattern) do
+        err_acc
+      else
+        error(
+          err_acc,
+          path ++ [Integer.to_string(index)],
+          :invalid_value,
+          "patterns entries must be non-empty strings"
+        )
+      end
+    end)
+  end
+
+  defp maybe_add_pattern_entry_errors(errors, _type, _patterns, _path), do: errors
 
   defp maybe_add_trigger_event_errors(errors, _type, nil, _path), do: errors
 

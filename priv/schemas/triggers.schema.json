@@ -43,7 +43,11 @@
           "additionalProperties": false,
           "required": ["patterns"],
           "properties": {
-            "patterns": { "type": "array", "items": { "type": "string" } },
+            "patterns": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            },
             "events": {
               "type": "array",
               "items": {
@@ -89,7 +93,11 @@
           "additionalProperties": false,
           "required": ["patterns"],
           "properties": {
-            "patterns": { "type": "array", "items": { "type": "string" } }
+            "patterns": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            }
           }
         }
       }

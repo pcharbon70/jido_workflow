@@ -150,6 +150,70 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 enforces non-empty trigger pattern arrays for built-in schemas" do
+    attrs = %{
+      "name" => "schema_empty_trigger_patterns_workflow",
+      "version" => "1.0.0",
+      "triggers" => [
+        %{
+          "type" => "file_system",
+          "patterns" => []
+        },
+        %{
+          "type" => "signal",
+          "patterns" => []
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "0"], ["triggers", "0", "patterns"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "1"], ["triggers", "1", "patterns"]]
+           end)
+  end
+
+  test "validate_workflow/1 enforces non-empty trigger pattern entries for built-in schemas" do
+    attrs = %{
+      "name" => "schema_blank_trigger_pattern_entries_workflow",
+      "version" => "1.0.0",
+      "triggers" => [
+        %{
+          "type" => "file_system",
+          "patterns" => [""]
+        },
+        %{
+          "type" => "signal",
+          "patterns" => [""]
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "patterns"],
+               ["triggers", "0", "patterns", "0"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "patterns"],
+               ["triggers", "1", "patterns", "0"]
+             ]
+           end)
+  end
+
   test "validate_workflow/1 enforces non-empty schedule for scheduled triggers" do
     attrs = %{
       "name" => "schema_empty_trigger_schedule_workflow",
@@ -524,6 +588,48 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
                ["triggers", "1"],
                ["triggers", "1", "config"],
                ["triggers", "1", "config", "schedule"]
+             ]
+           end)
+  end
+
+  test "validate_triggers_config/1 enforces non-empty trigger pattern arrays and entries" do
+    attrs = %{
+      "triggers" => [
+        %{
+          "id" => "trigger:file_system:empty_patterns",
+          "workflow_id" => "schema_flow",
+          "type" => "file_system",
+          "config" => %{
+            "patterns" => []
+          }
+        },
+        %{
+          "id" => "trigger:signal:blank_pattern",
+          "workflow_id" => "schema_flow",
+          "type" => "signal",
+          "config" => %{
+            "patterns" => [""]
+          }
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_triggers_config(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "patterns"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "config"],
+               ["triggers", "1", "config", "patterns"],
+               ["triggers", "1", "config", "patterns", "0"]
              ]
            end)
   end
