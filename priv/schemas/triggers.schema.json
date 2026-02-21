@@ -45,7 +45,7 @@
           "properties": {
             "patterns": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 },
+              "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
               "minItems": 1
             },
             "events": {
@@ -95,7 +95,7 @@
           "properties": {
             "patterns": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 },
+              "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
               "minItems": 1
             }
           }
