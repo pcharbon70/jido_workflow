@@ -163,6 +163,30 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects whitespace-only signals.topic and return.value" do
+      attrs = %{
+        "name" => "whitespace_signal_topic_and_return_value_flow",
+        "version" => "1.0.0",
+        "signals" => %{
+          "topic" => " "
+        },
+        "return" => %{
+          "value" => "\n"
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["signals", "topic"] and error.code == :invalid_value
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["return", "value"] and error.code == :invalid_value
+             end)
+    end
+
     test "rejects unknown top-level keys" do
       attrs = %{
         "name" => "unknown_top_level_key_flow",
