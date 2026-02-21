@@ -214,6 +214,58 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 enforces numeric minimums for trigger, step, and retry fields" do
+    attrs = %{
+      "name" => "schema_invalid_numeric_minimums_workflow",
+      "version" => "1.0.0",
+      "triggers" => [
+        %{
+          "type" => "file_system",
+          "patterns" => ["lib/**/*.ex"],
+          "debounce_ms" => -1
+        }
+      ],
+      "settings" => %{
+        "retry_policy" => %{
+          "max_retries" => 1,
+          "backoff" => "constant",
+          "base_delay_ms" => -10
+        }
+      },
+      "steps" => [
+        %{
+          "name" => "parse_file",
+          "type" => "action",
+          "module" => "JidoWorkflow.TestActions.ParseFile",
+          "timeout_ms" => 0,
+          "max_retries" => -1
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "0"], ["triggers", "0", "debounce_ms"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["settings"],
+               ["settings", "retry_policy"],
+               ["settings", "retry_policy", "base_delay_ms"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "0"], ["steps", "0", "timeout_ms"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "0"], ["steps", "0", "max_retries"]]
+           end)
+  end
+
   test "validate_workflow/1 supports custom plugin step types" do
     assert :ok =
              PluginExtensions.register_step_type(
