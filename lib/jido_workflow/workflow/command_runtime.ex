@@ -285,7 +285,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @start_rejected,
             %{
-              "workflow_id" => fetch_normalized_binary(signal.data, "workflow_id"),
+              "workflow_id" => fetch_requested_workflow_id(signal.data),
               "reason" => format_reason(reason)
             }
             |> maybe_put("run_id", fetch_normalized_binary(signal.data, "run_id")),
@@ -960,7 +960,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp normalize_start_request(data) do
-    workflow_id = normalize_optional_binary(fetch(data, "workflow_id"))
+    workflow_id = fetch_requested_workflow_id(data)
     run_id = normalize_optional_binary(fetch(data, "run_id"))
     inputs = normalize_start_inputs(data)
 
@@ -1030,8 +1030,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     case fetch(data, "inputs") do
       nil ->
         data
-        |> Map.drop(["workflow_id", "run_id", "backend"])
-        |> Map.drop([:workflow_id, :run_id, :backend])
+        |> Map.drop(["workflow_id", "id", "run_id", "backend"])
+        |> Map.drop([:workflow_id, :id, :run_id, :backend])
 
       inputs when is_map(inputs) ->
         inputs

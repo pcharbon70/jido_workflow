@@ -174,6 +174,85 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert run.workflow_id == "command_flow"
   end
 
+  test "handles workflow.run.start.requested with id fallback", context do
+    write_workflow(context.tmp_dir, "command_flow_by_id")
+
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "id" => "  command_flow_by_id  ",
+                   "run_id" => "  run_start_by_id  ",
+                   "inputs" => %{"value" => "hello_by_id"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.accepted",
+                      data: %{
+                        "workflow_id" => "command_flow_by_id",
+                        "run_id" => "run_start_by_id"
+                      }
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{
+                        "workflow_id" => "command_flow_by_id",
+                        "run_id" => "run_start_by_id",
+                        "result" => %{"echo" => "hello_by_id"}
+                      }
+                    }},
+                   5_000
+
+    assert {:ok, run} = RunStore.get("run_start_by_id", context.run_store)
+    assert run.status == :completed
+    assert run.workflow_id == "command_flow_by_id"
+  end
+
+  test "does not include id fallback key in implicit workflow.run.start.requested inputs",
+       context do
+    write_workflow(context.tmp_dir, "command_flow_implicit_inputs")
+
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "id" => "command_flow_implicit_inputs",
+                   "run_id" => "run_implicit_start_by_id",
+                   "value" => "implicit_value"
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{
+                        "workflow_id" => "command_flow_implicit_inputs",
+                        "run_id" => "run_implicit_start_by_id",
+                        "result" => %{"echo" => "implicit_value"}
+                      }
+                    }},
+                   5_000
+
+    assert {:ok, run} = RunStore.get("run_implicit_start_by_id", context.run_store)
+    assert run.inputs == %{"value" => "implicit_value"}
+    refute Map.has_key?(run.inputs, "id")
+  end
+
   test "normalizes whitespace in workflow.run.start.requested values", context do
     write_workflow(context.tmp_dir, "command_flow")
     assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
@@ -260,6 +339,34 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                       data: %{
                         "workflow_id" => "missing_workflow",
                         "run_id" => "run_missing_workflow_ws",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "workflow_not_available")
+  end
+
+  test "echoes normalized id fallback in workflow.run.start.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "id" => "  missing_by_id_workflow  ",
+                   "run_id" => "  run_missing_by_id_ws  ",
+                   "inputs" => %{"value" => "hello"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.rejected",
+                      data: %{
+                        "workflow_id" => "missing_by_id_workflow",
+                        "run_id" => "run_missing_by_id_ws",
                         "reason" => reason
                       }
                     }},
