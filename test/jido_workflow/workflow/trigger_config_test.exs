@@ -80,4 +80,50 @@ defmodule JidoWorkflow.Workflow.TriggerConfigTest do
     assert {:ok, triggers} = TriggerConfig.load_file(config_path)
     assert triggers == document.triggers
   end
+
+  test "load_document/1 returns validation errors for unknown top-level keys", context do
+    config_path = Path.join(context.tmp_dir, "triggers.json")
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        "triggers" => [],
+        "unexpected" => true
+      })
+    )
+
+    assert {:error, errors} = TriggerConfig.load_document(config_path)
+    assert Enum.any?(errors, &(&1.path in [[], ["unexpected"]]))
+  end
+
+  test "load_document/1 returns validation errors for invalid built-in trigger config", context do
+    config_path = Path.join(context.tmp_dir, "triggers.json")
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        "triggers" => [
+          %{
+            "id" => "trigger:signal:invalid",
+            "workflow_id" => "example_workflow",
+            "type" => "signal",
+            "config" => %{
+              "patterns" => ["workflow.trigger.requested"],
+              "schedule" => "*/5 * * * *"
+            }
+          }
+        ]
+      })
+    )
+
+    assert {:error, errors} = TriggerConfig.load_document(config_path)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "schedule"]
+             ]
+           end)
+  end
 end
