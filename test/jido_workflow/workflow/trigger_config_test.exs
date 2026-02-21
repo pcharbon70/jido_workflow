@@ -126,4 +126,36 @@ defmodule JidoWorkflow.Workflow.TriggerConfigTest do
              ]
            end)
   end
+
+  test "load_document/1 rejects unsupported built-in trigger event values", context do
+    config_path = Path.join(context.tmp_dir, "triggers.json")
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        "triggers" => [
+          %{
+            "id" => "trigger:file_system:invalid_events",
+            "workflow_id" => "example_workflow",
+            "type" => "file_system",
+            "config" => %{
+              "patterns" => ["watched/**/*.ex"],
+              "events" => ["pre_commit"]
+            }
+          }
+        ]
+      })
+    )
+
+    assert {:error, errors} = TriggerConfig.load_document(config_path)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "0"],
+               ["triggers", "0", "config"],
+               ["triggers", "0", "config", "events"],
+               ["triggers", "0", "config", "events", "0"]
+             ]
+           end)
+  end
 end
