@@ -296,6 +296,7 @@ defmodule JidoWorkflow.Workflow.Validator do
       |> validate_trigger_requirements(type, patterns, schedule, path)
       |> maybe_add_pattern_entry_errors(type, patterns, path ++ ["patterns"])
       |> maybe_add_minimum_integer_error(debounce_ms, 0, path ++ ["debounce_ms"])
+      |> maybe_add_non_empty_optional_string_error(command, path ++ ["command"])
       |> maybe_add_trigger_event_errors(type, events, path ++ ["events"])
 
     normalized = %Trigger{
