@@ -1015,8 +1015,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     case fetch(data, "params") do
       nil ->
         data
-        |> Map.drop(["trigger_id", "command", "workflow_id"])
-        |> Map.drop([:trigger_id, :command, :workflow_id])
+        |> Map.drop(["trigger_id", "command", "workflow_id", "id"])
+        |> Map.drop([:trigger_id, :command, :workflow_id, :id])
 
       params when is_map(params) ->
         params
