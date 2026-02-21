@@ -456,6 +456,8 @@ defmodule JidoWorkflow.Workflow.Validator do
       errors
       |> validate_step_requirements(type, module, agent, workflow, path)
       |> maybe_add_non_empty_optional_string_error(callback_signal, path ++ ["callback_signal"])
+      |> maybe_add_non_empty_string_list_entry_errors(outputs, path ++ ["outputs"])
+      |> maybe_add_non_empty_string_list_entry_errors(depends_on, path ++ ["depends_on"])
       |> maybe_add_inclusion_error(mode, @agent_modes, path ++ ["mode"])
       |> maybe_add_minimum_integer_error(timeout_ms, 1, path ++ ["timeout_ms"])
       |> maybe_add_minimum_integer_error(max_retries, 0, path ++ ["max_retries"])
@@ -573,6 +575,26 @@ defmodule JidoWorkflow.Workflow.Validator do
       errors
     end
   end
+
+  defp maybe_add_non_empty_string_list_entry_errors(errors, nil, _path), do: errors
+
+  defp maybe_add_non_empty_string_list_entry_errors(errors, values, path) when is_list(values) do
+    Enum.with_index(values)
+    |> Enum.reduce(errors, fn {value, index}, err_acc ->
+      if present_string?(value) do
+        err_acc
+      else
+        error(
+          err_acc,
+          path ++ [Integer.to_string(index)],
+          :invalid_value,
+          "#{last(path)} entries must be non-empty strings"
+        )
+      end
+    end)
+  end
+
+  defp maybe_add_non_empty_string_list_entry_errors(errors, _values, _path), do: errors
 
   defp validate_settings(nil, _path, errors), do: {nil, errors}
 

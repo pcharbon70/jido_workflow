@@ -244,8 +244,14 @@
         "type": { "const": "action" },
         "module": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] },
-        "outputs": { "type": "array", "items": { "type": "string" } },
-        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "outputs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
+        },
         "async": { "type": "boolean" },
         "optional": { "type": "boolean" },
         "timeout_ms": { "type": "integer", "minimum": 1 },
@@ -262,7 +268,10 @@
         "agent": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "callback_signal": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] },
-        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
+        },
         "mode": { "enum": ["sync", "async"] },
         "timeout_ms": { "type": "integer", "minimum": 1 },
         "pre_actions": { "type": "array", "items": { "type": "object" } },
@@ -278,8 +287,14 @@
         "type": { "const": "skill" },
         "module": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] },
-        "outputs": { "type": "array", "items": { "type": "string" } },
-        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "outputs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
+        },
         "async": { "type": "boolean" },
         "optional": { "type": "boolean" },
         "timeout_ms": { "type": "integer", "minimum": 1 },
@@ -295,7 +310,10 @@
         "type": { "const": "sub_workflow" },
         "workflow": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },
         "inputs": { "type": ["object", "array"] },
-        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" }
+        },
         "condition": { "type": "string" },
         "parallel": { "type": "boolean" },
         "timeout_ms": { "type": "integer", "minimum": 1 }
