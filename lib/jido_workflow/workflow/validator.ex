@@ -218,6 +218,7 @@ defmodule JidoWorkflow.Workflow.Validator do
     errors = maybe_add_inclusion_error(errors, type, @input_types, path ++ ["type"])
     {required, errors} = optional_boolean(input, :required, path ++ ["required"], false, errors)
     default = get(input, :default)
+    errors = maybe_add_input_default_type_error(errors, default, type, path ++ ["default"])
     {description, errors} = optional_string(input, :description, path ++ ["description"], errors)
 
     normalized = %Input{
@@ -234,6 +235,24 @@ defmodule JidoWorkflow.Workflow.Validator do
   defp normalize_input(_input, path, errors) do
     {nil, error(errors, path, :invalid_type, "input must be a map")}
   end
+
+  defp maybe_add_input_default_type_error(errors, nil, _type, _path), do: errors
+  defp maybe_add_input_default_type_error(errors, _default, nil, _path), do: errors
+
+  defp maybe_add_input_default_type_error(errors, default, type, path) do
+    if input_default_matches_type?(default, type) do
+      errors
+    else
+      error(errors, path, :invalid_type, "default must match input type #{type}")
+    end
+  end
+
+  defp input_default_matches_type?(value, "string"), do: is_binary(value)
+  defp input_default_matches_type?(value, "integer"), do: is_integer(value)
+  defp input_default_matches_type?(value, "boolean"), do: is_boolean(value)
+  defp input_default_matches_type?(value, "map"), do: is_map(value)
+  defp input_default_matches_type?(value, "list"), do: is_list(value)
+  defp input_default_matches_type?(_value, _type), do: true
 
   defp validate_triggers(triggers, path, trigger_types, errors) when is_list(triggers) do
     triggers

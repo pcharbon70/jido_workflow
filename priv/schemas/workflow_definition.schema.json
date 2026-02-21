@@ -22,18 +22,7 @@
     },
     "inputs": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["name", "type"],
-        "properties": {
-          "name": { "type": "string" },
-          "type": { "enum": ["string", "integer", "boolean", "map", "list"] },
-          "required": { "type": "boolean", "default": false },
-          "default": {},
-          "description": { "type": "string" }
-        }
-      }
+      "items": { "$ref": "#/definitions/input_declaration" }
     },
     "triggers": {
       "type": "array",
@@ -86,6 +75,60 @@
     }
   },
   "definitions": {
+    "input_declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "enum": ["string", "integer", "boolean", "map", "list"] },
+        "required": { "type": "boolean", "default": false },
+        "default": {},
+        "description": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "string" } }
+          },
+          "then": {
+            "properties": { "default": { "type": "string" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "integer" } }
+          },
+          "then": {
+            "properties": { "default": { "type": "integer" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "boolean" } }
+          },
+          "then": {
+            "properties": { "default": { "type": "boolean" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "map" } }
+          },
+          "then": {
+            "properties": { "default": { "type": "object" } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "list" } }
+          },
+          "then": {
+            "properties": { "default": { "type": "array" } }
+          }
+        }
+      ]
+    },
     "trigger": {
       "type": "object",
       "required": ["type"],
