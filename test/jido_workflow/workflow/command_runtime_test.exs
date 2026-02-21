@@ -1118,6 +1118,33 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert is_list(definition["steps"])
   end
 
+  test "returns workflow definition for workflow.definition.get.requested with id fallback",
+       context do
+    write_workflow(context.tmp_dir, "catalog_get_by_id_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.get.requested",
+                 %{"id" => "  catalog_get_by_id_flow  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.get.accepted",
+                      data: %{
+                        "workflow_id" => "catalog_get_by_id_flow",
+                        "definition" => definition
+                      }
+                    }},
+                   5_000
+
+    assert definition["name"] == "catalog_get_by_id_flow"
+  end
+
   test "rejects workflow.definition.get.requested for unknown workflow", context do
     assert {:ok, _published} =
              Bus.publish(context.bus, [
@@ -1152,6 +1179,26 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     %Signal{
                       type: "workflow.definition.get.rejected",
                       data: %{"workflow_id" => "missing_flow", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
+  end
+
+  test "echoes normalized id fallback in workflow.definition.get.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.get.requested",
+                 %{"id" => "  missing_by_id_flow  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.get.rejected",
+                      data: %{"workflow_id" => "missing_by_id_flow", "reason" => reason}
                     }},
                    5_000
 
@@ -1229,6 +1276,37 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert total >= 1
   end
 
+  test "handles workflow.registry.reload.requested for a known workflow with id fallback",
+       context do
+    write_workflow(context.tmp_dir, "registry_reload_by_id_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.registry.reload.requested",
+                 %{"id" => "  registry_reload_by_id_flow  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.reload.accepted",
+                      data: %{
+                        "workflow_id" => "registry_reload_by_id_flow",
+                        "summary" => %{
+                          "changed" => changed,
+                          "total" => total
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert changed >= 1
+    assert total >= 1
+  end
+
   test "rejects workflow.registry.reload.requested for unknown workflow", context do
     assert {:ok, _published} =
              Bus.publish(context.bus, [
@@ -1266,6 +1344,26 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                     %Signal{
                       type: "workflow.registry.reload.rejected",
                       data: %{"workflow_id" => "missing_reload_flow", "reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "not_found")
+  end
+
+  test "echoes normalized id fallback in workflow.registry.reload.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.registry.reload.requested",
+                 %{"id" => "  missing_reload_by_id_flow  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.registry.reload.rejected",
+                      data: %{"workflow_id" => "missing_reload_by_id_flow", "reason" => reason}
                     }},
                    5_000
 

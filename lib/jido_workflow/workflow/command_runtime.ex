@@ -730,7 +730,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @definition_get_rejected,
             %{
-              "workflow_id" => fetch_normalized_binary(signal.data, "workflow_id"),
+              "workflow_id" => fetch_requested_workflow_id(signal.data),
               "reason" => format_reason(reason)
             },
             signal
@@ -785,7 +785,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @registry_reload_rejected,
             %{
-              "workflow_id" => fetch_normalized_binary(signal.data, "workflow_id"),
+              "workflow_id" => fetch_requested_workflow_id(signal.data),
               "reason" => format_reason(reason)
             },
             signal
@@ -1077,10 +1077,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp normalize_required_workflow_id(data) when is_map(data) do
-    workflow_id =
-      fetch(data, "workflow_id")
-      |> normalize_optional_binary()
-      |> default_workflow_id(fetch(data, "id"))
+    workflow_id = fetch_requested_workflow_id(data)
 
     if valid_binary?(workflow_id) do
       {:ok, workflow_id}
@@ -1697,6 +1694,14 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     |> fetch(key)
     |> normalize_optional_binary()
   end
+
+  defp fetch_requested_workflow_id(data) when is_map(data) do
+    fetch(data, "workflow_id")
+    |> normalize_optional_binary()
+    |> default_workflow_id(fetch(data, "id"))
+  end
+
+  defp fetch_requested_workflow_id(_data), do: nil
 
   defp fetch_atom_key(map, key) do
     Enum.find_value(map, fn
