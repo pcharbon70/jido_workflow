@@ -285,10 +285,10 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @start_rejected,
             %{
-              "workflow_id" => fetch(signal.data, "workflow_id"),
+              "workflow_id" => fetch_normalized_binary(signal.data, "workflow_id"),
               "reason" => format_reason(reason)
             }
-            |> maybe_put("run_id", fetch(signal.data, "run_id")),
+            |> maybe_put("run_id", fetch_normalized_binary(signal.data, "run_id")),
             signal
           )
 
@@ -321,9 +321,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @manual_trigger_rejected,
             %{
-              "trigger_id" => fetch(signal.data, "trigger_id"),
-              "workflow_id" => fetch(signal.data, "workflow_id"),
-              "command" => fetch(signal.data, "command"),
+              "trigger_id" => fetch_normalized_binary(signal.data, "trigger_id"),
+              "workflow_id" => fetch_normalized_binary(signal.data, "workflow_id"),
+              "command" => fetch_normalized_binary(signal.data, "command"),
               "reason" => format_reason(reason)
             },
             signal
@@ -435,7 +435,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @pause_rejected,
             %{
-              "run_id" => fetch(signal.data, "run_id"),
+              "run_id" => fetch_normalized_binary(signal.data, "run_id"),
               "reason" => format_reason(reason)
             },
             signal
@@ -476,7 +476,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @step_rejected,
             %{
-              "run_id" => fetch(signal.data, "run_id"),
+              "run_id" => fetch_normalized_binary(signal.data, "run_id"),
               "reason" => format_reason(reason)
             },
             signal
@@ -521,8 +521,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @mode_rejected,
             %{
-              "run_id" => fetch(signal.data, "run_id"),
-              "mode" => fetch(signal.data, "mode"),
+              "run_id" => fetch_normalized_binary(signal.data, "run_id"),
+              "mode" => fetch_normalized_binary(signal.data, "mode"),
               "reason" => format_reason(reason)
             },
             signal
@@ -556,7 +556,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @resume_rejected,
             %{
-              "run_id" => fetch(signal.data, "run_id"),
+              "run_id" => fetch_normalized_binary(signal.data, "run_id"),
               "reason" => format_reason(reason)
             },
             signal
@@ -592,7 +592,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @cancel_rejected,
             %{
-              "run_id" => fetch(signal.data, "run_id"),
+              "run_id" => fetch_normalized_binary(signal.data, "run_id"),
               "reason" => format_reason(reason)
             },
             signal
@@ -621,7 +621,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @get_rejected,
             %{
-              "run_id" => fetch(signal.data, "run_id"),
+              "run_id" => fetch_normalized_binary(signal.data, "run_id"),
               "reason" => format_reason(reason)
             },
             signal
@@ -730,7 +730,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @definition_get_rejected,
             %{
-              "workflow_id" => fetch(signal.data, "workflow_id"),
+              "workflow_id" => fetch_normalized_binary(signal.data, "workflow_id"),
               "reason" => format_reason(reason)
             },
             signal
@@ -785,7 +785,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             state.bus,
             @registry_reload_rejected,
             %{
-              "workflow_id" => fetch(signal.data, "workflow_id"),
+              "workflow_id" => fetch_normalized_binary(signal.data, "workflow_id"),
               "reason" => format_reason(reason)
             },
             signal
@@ -1691,6 +1691,12 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp fetch(_map, _key), do: nil
+
+  defp fetch_normalized_binary(map, key) when is_binary(key) do
+    map
+    |> fetch(key)
+    |> normalize_optional_binary()
+  end
 
   defp fetch_atom_key(map, key) do
     Enum.find_value(map, fn
