@@ -1234,6 +1234,64 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
   end
 
+  test "handles workflow.trigger.manual.requested by command with surrounding whitespace",
+       context do
+    write_workflow(context.tmp_dir, "command_flow")
+    write_workflow(context.tmp_dir, "command_flow_alt")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    _first_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow",
+        command: "/workflow:review"
+      )
+
+    second_trigger_id =
+      start_manual_trigger(context,
+        workflow_id: "command_flow_alt",
+        command: "/workflow:review"
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.trigger.manual.requested",
+                 %{
+                   "workflow_id" => "  command_flow_alt  ",
+                   "command" => "  /workflow:review  ",
+                   "params" => %{"value" => "from_whitespace_wrapped_command"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.trigger.manual.accepted",
+                      data: %{
+                        "trigger_id" => ^second_trigger_id,
+                        "workflow_id" => "command_flow_alt",
+                        "command" => "/workflow:review",
+                        "run_id" => run_id,
+                        "status" => "completed"
+                      }
+                    }},
+                   5_000
+
+    assert is_binary(run_id)
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{
+                        "workflow_id" => "command_flow_alt",
+                        "run_id" => ^run_id,
+                        "result" => %{"echo" => "from_whitespace_wrapped_command"}
+                      }
+                    }},
+                   5_000
+  end
+
   test "rejects workflow.trigger.manual.requested when command resolves to multiple triggers",
        context do
     write_workflow(context.tmp_dir, "command_flow")

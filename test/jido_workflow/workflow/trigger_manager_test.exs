@@ -200,6 +200,13 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
                workflow_id: "flow_two"
              )
 
+    assert {:ok, "manual:shared:two"} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "  /workflow:shared  ",
+               process_registry: context.process_registry,
+               workflow_id: " flow_two "
+             )
+
     assert {:error, :not_found} =
              TriggerSupervisor.lookup_manual_by_command(
                "/workflow:missing",
@@ -265,6 +272,18 @@ defmodule JidoWorkflow.Workflow.TriggerManagerTest do
     assert {:ok, "manual:trimmed:one"} =
              TriggerSupervisor.lookup_manual_by_command(
                "/workflow:trimmed",
+               process_registry: context.process_registry
+             )
+
+    assert {:ok, "manual:trimmed:one"} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "   /workflow:trimmed\t",
+               process_registry: context.process_registry
+             )
+
+    assert {:error, :not_found} =
+             TriggerSupervisor.lookup_manual_by_command(
+               "   ",
                process_registry: context.process_registry
              )
   end

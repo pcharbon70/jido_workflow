@@ -85,10 +85,16 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
   @spec lookup_manual_by_command(String.t(), manual_lookup_opts()) ::
           {:ok, trigger_id()} | {:error, term()}
   def lookup_manual_by_command(command, opts \\ []) when is_binary(command) do
-    workflow_id = Keyword.get(opts, :workflow_id)
+    case normalize_lookup_string(command) do
+      nil ->
+        {:error, :not_found}
 
-    with {:ok, match} <- find_manual_match(command, workflow_id, opts) do
-      {:ok, match.id}
+      command ->
+        workflow_id = normalize_lookup_string(Keyword.get(opts, :workflow_id))
+
+        with {:ok, match} <- find_manual_match(command, workflow_id, opts) do
+          {:ok, match.id}
+        end
     end
   end
 
@@ -181,6 +187,15 @@ defmodule JidoWorkflow.Workflow.TriggerSupervisor do
   end
 
   defp command_match?(_configured, _requested), do: false
+
+  defp normalize_lookup_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_lookup_string(_value), do: nil
 
   defp workflow_match?(_configured, nil), do: true
   defp workflow_match?("", _workflow_id), do: false
