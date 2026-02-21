@@ -115,6 +115,7 @@ defmodule JidoWorkflow.Workflow.Validator do
   )
   @settings_keys ~w(max_concurrency timeout_ms retry_policy on_failure)
   @retry_policy_keys ~w(max_retries backoff base_delay_ms)
+  @error_handler_keys ~w(handler action inputs)
   @return_keys ~w(value transform)
 
   @spec validate(map()) :: {:ok, Definition.t()} | {:error, [ValidationError.t()]}
@@ -573,16 +574,56 @@ defmodule JidoWorkflow.Workflow.Validator do
   end
 
   defp validate_error_handling(handlers, path, errors) when is_list(handlers) do
-    if Enum.all?(handlers, &is_map/1) do
-      {handlers, errors}
-    else
-      {[], error(errors, path, :invalid_type, "error_handling must be a list of maps")}
-    end
+    handlers
+    |> Enum.with_index()
+    |> Enum.reduce({[], errors}, fn {handler, index}, {acc, err_acc} ->
+      current = path ++ [Integer.to_string(index)]
+
+      case normalize_error_handler(handler, current, err_acc) do
+        {nil, next_errors} ->
+          {acc, next_errors}
+
+        {normalized, next_errors} ->
+          {[normalized | acc], next_errors}
+      end
+    end)
+    |> then(fn {normalized, err_acc} -> {Enum.reverse(normalized), err_acc} end)
   end
 
   defp validate_error_handling(_, path, errors) do
     {[], error(errors, path, :invalid_type, "error_handling must be a list")}
   end
+
+  defp normalize_error_handler(handler, path, errors) when is_map(handler) do
+    errors = reject_unknown_keys(handler, @error_handler_keys, path, errors)
+
+    {handler_name, errors} =
+      required_string(handler, :handler, path ++ ["handler"], nil, "handler is required", errors)
+
+    {action, errors} = optional_string(handler, :action, path ++ ["action"], errors)
+    {inputs, errors} = optional_map_or_list(handler, :inputs, path ++ ["inputs"], errors)
+    errors = maybe_add_missing_compensation_action_error(errors, handler_name, action, path)
+
+    {%{"handler" => handler_name, "action" => action, "inputs" => inputs}, errors}
+  end
+
+  defp normalize_error_handler(_handler, path, errors) do
+    {nil, error(errors, path, :invalid_type, "error handler must be a map")}
+  end
+
+  defp maybe_add_missing_compensation_action_error(errors, handler_name, action, path) do
+    if compensation_handler_name?(handler_name) and is_nil(action) do
+      error(errors, path ++ ["action"], :required, "action is required for compensation handlers")
+    else
+      errors
+    end
+  end
+
+  defp compensation_handler_name?(name) when is_binary(name) do
+    String.starts_with?(name, "compensate:")
+  end
+
+  defp compensation_handler_name?(_name), do: false
 
   defp validate_return(nil, _path, errors), do: {nil, errors}
 
