@@ -344,6 +344,80 @@ defmodule JidoWorkflow.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects whitespace-only required workflow strings" do
+    attrs = %{
+      "name" => "schema_whitespace_required_workflow_strings",
+      "version" => "1.0.0",
+      "inputs" => [
+        %{
+          "name" => " ",
+          "type" => "string"
+        }
+      ],
+      "steps" => [
+        %{
+          "name" => " ",
+          "type" => "action",
+          "module" => "JidoWorkflow.TestActions.ParseFile"
+        },
+        %{
+          "name" => "parse_file",
+          "type" => "action",
+          "module" => " "
+        },
+        %{
+          "name" => "review",
+          "type" => "agent",
+          "agent" => "\t"
+        },
+        %{
+          "name" => "fix",
+          "type" => "sub_workflow",
+          "workflow" => "  "
+        }
+      ],
+      "error_handling" => [
+        %{
+          "handler" => " "
+        },
+        %{
+          "handler" => "compensate:parse_file",
+          "action" => " "
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["inputs", "0"], ["inputs", "0", "name"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "0"], ["steps", "0", "name"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "1"], ["steps", "1", "module"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "2"], ["steps", "2", "agent"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["steps", "3"], ["steps", "3", "workflow"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["error_handling", "0"], ["error_handling", "0", "handler"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["error_handling", "1"], ["error_handling", "1", "action"]]
+           end)
+  end
+
   test "validate_workflow/1 enforces built-in trigger event values" do
     attrs = %{
       "name" => "schema_invalid_trigger_events_workflow",
