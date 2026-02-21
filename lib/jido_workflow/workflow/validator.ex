@@ -289,7 +289,10 @@ defmodule JidoWorkflow.Workflow.Validator do
     {debounce_ms, errors} =
       optional_integer(trigger, :debounce_ms, path ++ ["debounce_ms"], errors)
 
-    errors = validate_trigger_requirements(errors, type, patterns, schedule, path)
+    errors =
+      errors
+      |> validate_trigger_requirements(type, patterns, schedule, path)
+      |> maybe_add_minimum_integer_error(debounce_ms, 0, path ++ ["debounce_ms"])
 
     normalized = %Trigger{
       type: type || "",
@@ -391,6 +394,8 @@ defmodule JidoWorkflow.Workflow.Validator do
       errors
       |> validate_step_requirements(type, module, agent, workflow, path)
       |> maybe_add_inclusion_error(mode, @agent_modes, path ++ ["mode"])
+      |> maybe_add_minimum_integer_error(timeout_ms, 1, path ++ ["timeout_ms"])
+      |> maybe_add_minimum_integer_error(max_retries, 0, path ++ ["max_retries"])
 
     normalized = %Step{
       name: name || "",
@@ -462,6 +467,16 @@ defmodule JidoWorkflow.Workflow.Validator do
       errors
     else
       error(errors, path, :invalid_value, "must be one of: #{Enum.join(allowed, ", ")}")
+    end
+  end
+
+  defp maybe_add_minimum_integer_error(errors, nil, _minimum, _path), do: errors
+
+  defp maybe_add_minimum_integer_error(errors, value, minimum, path) when is_integer(value) do
+    if value < minimum do
+      error(errors, path, :invalid_value, "must be >= #{minimum}")
+    else
+      errors
     end
   end
 
@@ -537,6 +552,8 @@ defmodule JidoWorkflow.Workflow.Validator do
       else
         errors
       end
+
+    errors = maybe_add_minimum_integer_error(errors, base_delay_ms, 0, path ++ ["base_delay_ms"])
 
     errors =
       if backoff && backoff not in @retry_backoff_types do

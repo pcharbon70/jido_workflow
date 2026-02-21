@@ -488,5 +488,74 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
                error.path == ["inputs", "0", "default"] and error.code == :invalid_type
              end)
     end
+
+    test "rejects negative debounce_ms for file_system triggers" do
+      attrs = %{
+        "name" => "invalid_trigger_debounce_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "file_system",
+            "patterns" => ["lib/**/*.ex"],
+            "debounce_ms" => -1
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "debounce_ms"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects step timeout_ms below 1 and max_retries below 0" do
+      attrs = %{
+        "name" => "invalid_step_numeric_bounds_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "JidoWorkflow.TestActions.ParseFile",
+            "timeout_ms" => 0,
+            "max_retries" => -1
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "timeout_ms"] and error.code == :invalid_value
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "max_retries"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects negative retry policy base_delay_ms" do
+      attrs = %{
+        "name" => "invalid_retry_base_delay_flow",
+        "version" => "1.0.0",
+        "settings" => %{
+          "retry_policy" => %{
+            "max_retries" => 1,
+            "backoff" => "constant",
+            "base_delay_ms" => -10
+          }
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["settings", "retry_policy", "base_delay_ms"] and
+                 error.code == :invalid_value
+             end)
+    end
   end
 end
