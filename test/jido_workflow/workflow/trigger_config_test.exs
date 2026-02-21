@@ -127,6 +127,49 @@ defmodule JidoWorkflow.Workflow.TriggerConfigTest do
            end)
   end
 
+  test "load_document/1 rejects empty trigger identifiers and schedule values", context do
+    config_path = Path.join(context.tmp_dir, "triggers.json")
+
+    File.write!(
+      config_path,
+      Jason.encode!(%{
+        "triggers" => [
+          %{
+            "id" => "",
+            "workflow_id" => "example_workflow",
+            "type" => "manual"
+          },
+          %{
+            "id" => "trigger:scheduled:empty_schedule",
+            "workflow_id" => "",
+            "type" => "scheduled",
+            "config" => %{
+              "schedule" => ""
+            }
+          }
+        ]
+      })
+    )
+
+    assert {:error, errors} = TriggerConfig.load_document(config_path)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "0"], ["triggers", "0", "id"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["triggers", "1"], ["triggers", "1", "workflow_id"]]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["triggers", "1"],
+               ["triggers", "1", "config"],
+               ["triggers", "1", "config", "schedule"]
+             ]
+           end)
+  end
+
   test "load_document/1 rejects unsupported built-in trigger event values", context do
     config_path = Path.join(context.tmp_dir, "triggers.json")
 

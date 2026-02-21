@@ -254,6 +254,26 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
              end)
     end
 
+    test "requires non-empty schedule for scheduled triggers" do
+      attrs = %{
+        "name" => "empty_schedule_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "scheduled",
+            "schedule" => "   "
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "schedule"] and error.code == :required
+             end)
+    end
+
     test "rejects unsupported file_system trigger events" do
       attrs = %{
         "name" => "invalid_file_system_trigger_events_flow",
@@ -485,6 +505,52 @@ defmodule JidoWorkflow.Workflow.ValidatorTest do
 
       assert Enum.any?(errors, fn error ->
                error.path == ["error_handling", "0", "action"] and error.code == :required
+             end)
+    end
+
+    test "requires non-empty action for compensation handlers" do
+      attrs = %{
+        "name" => "empty_compensation_action_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "compensate:parse_file",
+            "action" => " "
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "action"] and error.code == :required
+             end)
+    end
+
+    test "requires non-empty module, agent, and workflow for built-in step types" do
+      attrs = %{
+        "name" => "empty_step_targets_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{"name" => "parse", "type" => "action", "module" => " "},
+          %{"name" => "review", "type" => "agent", "agent" => ""},
+          %{"name" => "fix", "type" => "sub_workflow", "workflow" => "  "}
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "module"] and error.code == :required
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "1", "agent"] and error.code == :required
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "2", "workflow"] and error.code == :required
              end)
     end
 
