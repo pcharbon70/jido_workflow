@@ -174,6 +174,46 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert run.workflow_id == "command_flow"
   end
 
+  test "normalizes whitespace in workflow.run.start.requested values", context do
+    write_workflow(context.tmp_dir, "command_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.start.requested",
+                 %{
+                   "workflow_id" => "  command_flow  ",
+                   "run_id" => "  run_start_whitespace  ",
+                   "backend" => "  DIRECT  ",
+                   "inputs" => %{"value" => "trimmed_start"}
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.start.accepted",
+                      data: %{
+                        "workflow_id" => "command_flow",
+                        "run_id" => "run_start_whitespace"
+                      }
+                    }},
+                   5_000
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.completed",
+                      data: %{
+                        "workflow_id" => "command_flow",
+                        "run_id" => "run_start_whitespace",
+                        "result" => %{"echo" => "trimmed_start"}
+                      }
+                    }},
+                   5_000
+  end
+
   test "emits start rejected when requested workflow is not available", context do
     assert {:ok, _published} =
              Bus.publish(context.bus, [
@@ -369,7 +409,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
              Bus.publish(context.bus, [
                Signal.new!(
                  "workflow.run.pause.requested",
-                 %{"run_id" => "run_pause_missing_store"}, source: "/test/client")
+                 %{"run_id" => "run_pause_missing_store"},
+                 source: "/test/client"
+               )
              ])
 
     assert_receive {:signal,
@@ -625,6 +667,52 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert run["status"] == "failed"
   end
 
+  test "normalizes whitespace in workflow.run.list.requested filters", context do
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_list_ws_1", workflow_id: "flow_ws", backend: :direct},
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_failed(
+               "run_list_ws_1",
+               :boom,
+               %{workflow_id: "flow_ws", backend: :direct},
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_list_ws_2", workflow_id: "flow_ws", backend: :strategy},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{
+                   "workflow_id" => "  flow_ws  ",
+                   "status" => "  FAILED  ",
+                   "limit" => "  1  "
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.accepted",
+                      data: %{"count" => 1, "runs" => [run]}
+                    }},
+                   5_000
+
+    assert run["run_id"] == "run_list_ws_1"
+    assert run["workflow_id"] == "flow_ws"
+    assert run["status"] == "failed"
+  end
+
   test "returns command runtime status for workflow.runtime.status.requested", context do
     assert {:ok, _published} =
              Bus.publish(context.bus, [
@@ -873,6 +961,32 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "unsupported_backend")
   end
 
+  test "normalizes whitespace in workflow.run.mode.requested payload values", context do
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_mode_ws_direct", workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.mode.requested",
+                 %{"run_id" => "  run_mode_ws_direct  ", "mode" => "  STEP  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.mode.rejected",
+                      data: %{"reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "unsupported_backend")
+  end
+
   test "returns workflow metadata for workflow.definition.list.requested", context do
     write_workflow(context.tmp_dir, "catalog_flow")
     write_disabled_workflow(context.tmp_dir, "catalog_disabled_flow")
@@ -895,6 +1009,35 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
                    5_000
 
     assert definition["id"] == "catalog_flow"
+    assert definition["enabled"] == true
+  end
+
+  test "normalizes whitespace in workflow.definition.list.requested boolean and limit filters",
+       context do
+    write_workflow(context.tmp_dir, "catalog_ws_flow")
+    write_disabled_workflow(context.tmp_dir, "catalog_ws_disabled_flow")
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.list.requested",
+                 %{
+                   "include_disabled" => "  false  ",
+                   "include_invalid" => "  true  ",
+                   "limit" => "  1  "
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.list.accepted",
+                      data: %{"count" => 1, "definitions" => [definition]}
+                    }},
+                   5_000
+
     assert definition["enabled"] == true
   end
 
