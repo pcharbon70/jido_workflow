@@ -768,6 +768,70 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "invalid_transition")
   end
 
+  test "echoes normalized requested_reason in workflow.run.cancel.rejected payloads", context do
+    assert :ok =
+             RunStore.record_completed(
+               "run_done_with_reason",
+               %{"ok" => true},
+               %{workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.cancel.requested",
+                 %{"run_id" => "run_done_with_reason", "reason" => "  manual_stop  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.cancel.rejected",
+                      data: %{
+                        "run_id" => "run_done_with_reason",
+                        "requested_reason" => "manual_stop",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "invalid_transition")
+  end
+
+  test "echoes atom requested_reason in workflow.run.cancel.rejected payloads", context do
+    assert :ok =
+             RunStore.record_completed(
+               "run_done_with_atom_reason",
+               %{"ok" => true},
+               %{workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.cancel.requested",
+                 %{"run_id" => "run_done_with_atom_reason", "reason" => :manual_stop},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.cancel.rejected",
+                      data: %{
+                        "run_id" => "run_done_with_atom_reason",
+                        "requested_reason" => "manual_stop",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "invalid_transition")
+  end
+
   test "returns run details for workflow.run.get.requested", context do
     assert :ok =
              RunStore.record_started(
