@@ -651,7 +651,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
               publish_command_response(
                 state.bus,
                 @list_rejected,
-                %{"reason" => format_reason(reason)},
+                list_rejected_payload(signal.data, reason),
                 signal
               )
 
@@ -663,7 +663,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
           publish_command_response(
             state.bus,
             @list_rejected,
-            %{"reason" => format_reason(reason)},
+            list_rejected_payload(signal.data, reason),
             signal
           )
 
@@ -1059,6 +1059,13 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp normalize_list_opts(_data), do: {:ok, []}
 
+  defp list_rejected_payload(data, reason) do
+    %{"reason" => format_reason(reason)}
+    |> maybe_put("workflow_id", fetch_list_requested_workflow_id(data))
+    |> maybe_put("status", fetch_normalized_binary(data, "status"))
+    |> maybe_put("limit", fetch_normalized_limit_filter(data))
+  end
+
   defp optional_requested_workflow_id_filter(data) when is_map(data) do
     value =
       case fetch_with_presence(data, "workflow_id") do
@@ -1068,6 +1075,15 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
     normalize_optional_requested_workflow_id_filter(value)
   end
+
+  defp fetch_list_requested_workflow_id(data) when is_map(data) do
+    case optional_requested_workflow_id_filter(data) do
+      {:ok, workflow_id} -> workflow_id
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp fetch_list_requested_workflow_id(_data), do: nil
 
   defp normalize_optional_requested_workflow_id_filter(nil), do: {:ok, nil}
 
@@ -1199,6 +1215,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
       _ ->
         {:error, {:missing_or_invalid, String.to_atom(key)}}
+    end
+  end
+
+  defp fetch_normalized_limit_filter(data) do
+    case fetch(data, "limit") do
+      limit when is_integer(limit) ->
+        limit
+
+      limit when is_binary(limit) ->
+        normalize_optional_binary(limit)
+
+      _other ->
+        nil
     end
   end
 
