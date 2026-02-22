@@ -1313,7 +1313,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp fetch_requested_mode(data) do
     case fetch(data, "mode") do
-      mode when mode in [:auto, :step] ->
+      mode when is_atom(mode) and not is_nil(mode) ->
         Atom.to_string(mode)
 
       mode when is_binary(mode) ->
