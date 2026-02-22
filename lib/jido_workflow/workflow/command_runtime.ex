@@ -594,7 +594,8 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             %{
               "run_id" => fetch_normalized_binary(signal.data, "run_id"),
               "reason" => format_reason(reason)
-            },
+            }
+            |> maybe_put("requested_reason", fetch_requested_cancel_reason(signal.data)),
             signal
           )
 
@@ -1268,6 +1269,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
       _ ->
         :cancelled
+    end
+  end
+
+  defp fetch_requested_cancel_reason(data) do
+    case fetch(data, "reason") do
+      reason when is_binary(reason) ->
+        normalize_optional_binary(reason)
+
+      reason when is_atom(reason) ->
+        Atom.to_string(reason)
+
+      _other ->
+        nil
     end
   end
 
