@@ -2,7 +2,7 @@
 
 ## Compiler Output
 
-`JidoWorkflow.Workflow.Compiler.compile/1` emits a bundle:
+`Jido.Code.Workflow.Compiler.compile/1` emits a bundle:
 
 - `workflow` (`Runic.Workflow`)
 - `input_schema`

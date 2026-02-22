@@ -2,7 +2,7 @@
 
 ## Extension Surface
 
-`JidoWorkflow.Workflow.PluginExtensions` provides registration APIs for custom workflow types.
+`Jido.Code.Workflow.PluginExtensions` provides registration APIs for custom workflow types.
 
 - `register_step_type/2`
 - `unregister_step_type/1`

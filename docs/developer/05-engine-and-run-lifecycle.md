@@ -2,7 +2,7 @@
 
 ## Backends
 
-`JidoWorkflow.Workflow.Engine` supports two backends:
+`Jido.Code.Workflow.Engine` supports two backends:
 
 - `:direct` (default): `Runic.Workflow.react_until_satisfied/3`
 - `:strategy`: `Jido.Runic.Strategy` through `RuntimeAgent`

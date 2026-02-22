@@ -12,19 +12,19 @@ This document locks the initial architecture contracts for implementing markdown
 
 ## Module map
 
-- `JidoWorkflow.Workflow.Definition`
+- `Jido.Code.Workflow.Definition`
   - Typed workflow contract structs (definition, step, trigger, settings, return)
-- `JidoWorkflow.Workflow.Validator`
+- `Jido.Code.Workflow.Validator`
   - Contract validation and normalization
-- `JidoWorkflow.Workflow.ValidationError`
+- `Jido.Code.Workflow.ValidationError`
   - Path-aware error payload for parser/loader surfaces
-- `JidoWorkflow.Workflow.Registry` (planned)
+- `Jido.Code.Workflow.Registry` (planned)
   - Discovery, caching, reload
-- `JidoWorkflow.Workflow.Compiler` (planned)
+- `Jido.Code.Workflow.Compiler` (planned)
   - Normalize -> `Runic.Workflow`
-- `JidoWorkflow.Workflow.Engine` (planned)
+- `Jido.Code.Workflow.Engine` (planned)
   - Execute/pause/resume/cancel orchestration
-- `JidoWorkflow.Workflow.Triggers.*` (planned)
+- `Jido.Code.Workflow.Triggers.*` (planned)
   - File, git, signal, schedule, manual trigger processes
 
 ## Signal taxonomy (reserved)

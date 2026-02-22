@@ -2,7 +2,7 @@
 
 ## Lifecycle Signal Emission
 
-`JidoWorkflow.Workflow.Broadcaster` is the central publisher for execution events.
+`Jido.Code.Workflow.Broadcaster` is the central publisher for execution events.
 
 Primary signal types:
 
@@ -32,7 +32,7 @@ with `--limit` and/or `--timeout`.
 
 ## Hook Runtime
 
-`JidoWorkflow.Workflow.HookRuntime` subscribes to selected lifecycle signals and forwards them into hook callbacks through `HooksIntegration`.
+`Jido.Code.Workflow.HookRuntime` subscribes to selected lifecycle signals and forwards them into hook callbacks through `HooksIntegration`.
 
 Signal to hook mapping currently includes:
 
@@ -56,4 +56,4 @@ Unexpected returns and exceptions are logged as warnings and swallowed to protec
 
 ## Default Adapter
 
-If no adapter is configured, `JidoWorkflow.Workflow.Hooks.NoopAdapter` is used.
+If no adapter is configured, `Jido.Code.Workflow.Hooks.NoopAdapter` is used.
