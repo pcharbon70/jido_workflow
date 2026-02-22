@@ -794,6 +794,34 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "invalid_transition")
   end
 
+  test "does not echo missing requested_reason in workflow.run.cancel.rejected payloads",
+       context do
+    assert :ok =
+             RunStore.record_completed(
+               "run_done_without_reason",
+               %{"ok" => true},
+               %{workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.cancel.requested",
+                 %{"run_id" => "run_done_without_reason"}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.cancel.rejected",
+                      data: %{"run_id" => "run_done_without_reason", "reason" => reason} = payload
+                    }},
+                   5_000
+
+    refute Map.has_key?(payload, "requested_reason")
+    assert String.contains?(reason, "invalid_transition")
+  end
+
   test "echoes normalized requested_reason in workflow.run.cancel.rejected payloads", context do
     assert :ok =
              RunStore.record_completed(

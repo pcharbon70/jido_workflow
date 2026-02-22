@@ -1296,7 +1296,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       reason when is_binary(reason) ->
         normalize_optional_binary(reason)
 
-      reason when is_atom(reason) ->
+      reason when is_atom(reason) and not is_nil(reason) ->
         Atom.to_string(reason)
 
       _other ->
