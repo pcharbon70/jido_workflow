@@ -629,6 +629,38 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert subscription_count >= 17
   end
 
+  test "echoes normalized filters when list requests fail after parsing", context do
+    missing_run_store = unique_name("command_runtime_missing_run_store")
+    _ = :sys.replace_state(context.command_runtime, &Map.put(&1, :run_store, missing_run_store))
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{
+                   "id" => "  flow_missing_store  ",
+                   "status" => "  FAILED  ",
+                   "limit" => "  2  "
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.rejected",
+                      data: %{
+                        "workflow_id" => "flow_missing_store",
+                        "status" => "FAILED",
+                        "limit" => "2",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "run_store_unavailable")
+  end
+
   test "routes pause/resume/cancel command signals through run controls", context do
     assert :ok =
              RunStore.record_started(
@@ -922,6 +954,36 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert run["status"] == "failed"
   end
 
+  test "normalizes workflow.run.list.rejected filter payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{
+                   "id" => "  flow_list_rejected  ",
+                   "status" => "  INVALID_STATUS  ",
+                   "limit" => "  2  "
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.rejected",
+                      data: %{
+                        "workflow_id" => "flow_list_rejected",
+                        "status" => "INVALID_STATUS",
+                        "limit" => "2",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "missing_or_invalid")
+    assert String.contains?(reason, "status")
+  end
+
   test "does not use id fallback when workflow_id filter is explicitly provided", context do
     assert {:ok, _published} =
              Bus.publish(context.bus, [
@@ -935,10 +997,11 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert_receive {:signal,
                     %Signal{
                       type: "workflow.run.list.rejected",
-                      data: %{"reason" => reason}
+                      data: %{"status" => "failed", "reason" => reason} = payload
                     }},
                    5_000
 
+    refute Map.has_key?(payload, "workflow_id")
     assert String.contains?(reason, "missing_or_invalid")
     assert String.contains?(reason, "workflow_id")
   end
@@ -956,10 +1019,11 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert_receive {:signal,
                     %Signal{
                       type: "workflow.run.list.rejected",
-                      data: %{"reason" => reason}
+                      data: %{"status" => "failed", "reason" => reason} = payload
                     }},
                    5_000
 
+    refute Map.has_key?(payload, "workflow_id")
     assert String.contains?(reason, "missing_or_invalid")
     assert String.contains?(reason, "workflow_id")
   end
