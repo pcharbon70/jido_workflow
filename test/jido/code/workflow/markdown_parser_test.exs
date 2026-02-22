@@ -4,7 +4,7 @@ defmodule Jido.Code.Workflow.MarkdownParserTest do
   alias Jido.Code.Workflow.MarkdownParser
   alias Jido.Code.Workflow.ValidationError
 
-  @fixture "/Users/Pascal/code/jido/jido_workflow/test/support/fixtures/workflows/code_review_pipeline.md"
+  @fixture Path.expand("../../../support/fixtures/workflows/code_review_pipeline.md", __DIR__)
 
   test "parse_file/1 parses frontmatter and workflow sections" do
     assert {:ok, parsed} = MarkdownParser.parse_file(@fixture)
