@@ -1340,6 +1340,36 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "unsupported_backend")
   end
 
+  test "echoes atom mode in workflow.run.mode.rejected payloads", context do
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_mode_atom_direct", workflow_id: "command_flow", backend: :direct},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.mode.requested",
+                 %{"run_id" => "run_mode_atom_direct", "mode" => :step},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.mode.rejected",
+                      data: %{
+                        "run_id" => "run_mode_atom_direct",
+                        "mode" => "step",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "unsupported_backend")
+  end
+
   test "normalizes whitespace in workflow.run.mode.requested payload values", context do
     assert :ok =
              RunStore.record_started(

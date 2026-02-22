@@ -522,7 +522,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
             @mode_rejected,
             %{
               "run_id" => fetch_normalized_binary(signal.data, "run_id"),
-              "mode" => fetch_normalized_binary(signal.data, "mode"),
+              "mode" => fetch_requested_mode(signal.data),
               "reason" => format_reason(reason)
             },
             signal
@@ -1295,6 +1295,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
       _ ->
         {:error, {:missing_or_invalid, :mode}}
+    end
+  end
+
+  defp fetch_requested_mode(data) do
+    case fetch(data, "mode") do
+      mode when mode in [:auto, :step] ->
+        Atom.to_string(mode)
+
+      mode when is_binary(mode) ->
+        normalize_optional_binary(mode)
+
+      _other ->
+        nil
     end
   end
 
