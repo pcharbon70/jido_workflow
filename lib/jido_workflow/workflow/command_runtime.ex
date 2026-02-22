@@ -1260,7 +1260,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp fetch_requested_status_filter(data) do
     case fetch(data, "status") do
-      status when is_atom(status) ->
+      status when is_atom(status) and not is_nil(status) ->
         Atom.to_string(status)
 
       status when is_binary(status) ->
