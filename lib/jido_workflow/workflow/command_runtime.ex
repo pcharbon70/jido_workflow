@@ -1044,7 +1044,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp normalize_start_inputs(_data), do: :invalid
 
   defp normalize_list_opts(data) when is_map(data) do
-    with {:ok, workflow_id} <- optional_binary_filter(data, "workflow_id"),
+    with {:ok, workflow_id} <- optional_requested_workflow_id_filter(data),
          {:ok, status} <- optional_status_filter(data, "status"),
          {:ok, limit} <- optional_positive_integer_filter(data, "limit") do
       opts =
@@ -1058,6 +1058,28 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   end
 
   defp normalize_list_opts(_data), do: {:ok, []}
+
+  defp optional_requested_workflow_id_filter(data) when is_map(data) do
+    value =
+      case fetch_with_presence(data, "workflow_id") do
+        {:present, workflow_id} -> workflow_id
+        :missing -> fetch(data, "id")
+      end
+
+    normalize_optional_requested_workflow_id_filter(value)
+  end
+
+  defp normalize_optional_requested_workflow_id_filter(nil), do: {:ok, nil}
+
+  defp normalize_optional_requested_workflow_id_filter(value) do
+    case normalize_optional_binary(value) do
+      workflow_id when is_binary(workflow_id) ->
+        {:ok, workflow_id}
+
+      _other ->
+        {:error, {:missing_or_invalid, :workflow_id}}
+    end
+  end
 
   defp normalize_definition_list_opts(data) when is_map(data) do
     with {:ok, include_disabled} <- optional_boolean_filter(data, "include_disabled"),
@@ -1090,22 +1112,6 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp default_workflow_id(nil, fallback), do: normalize_optional_binary(fallback)
   defp default_workflow_id(workflow_id, _fallback), do: workflow_id
-
-  defp optional_binary_filter(data, key) do
-    case fetch(data, key) do
-      nil ->
-        {:ok, nil}
-
-      value ->
-        normalized = normalize_optional_binary(value)
-
-        if valid_binary?(normalized) do
-          {:ok, normalized}
-        else
-          {:error, {:missing_or_invalid, String.to_atom(key)}}
-        end
-    end
-  end
 
   defp optional_status_filter(data, key) do
     case fetch(data, key) do
@@ -1689,6 +1695,18 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
   defp fetch(_map, _key), do: nil
 
+  defp fetch_with_presence(map, key) when is_map(map) and is_binary(key) do
+    case Map.fetch(map, key) do
+      {:ok, value} ->
+        {:present, value}
+
+      :error ->
+        fetch_atom_key_with_presence(map, key)
+    end
+  end
+
+  defp fetch_with_presence(_map, _key), do: :missing
+
   defp fetch_normalized_binary(map, key) when is_binary(key) do
     map
     |> fetch(key)
@@ -1711,6 +1729,22 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       _other ->
         nil
     end)
+  end
+
+  defp fetch_atom_key_with_presence(map, key) do
+    case Enum.find(map, fn
+           {map_key, _map_value} when is_atom(map_key) ->
+             Atom.to_string(map_key) == key
+
+           _other ->
+             false
+         end) do
+      {_map_key, map_value} ->
+        {:present, map_value}
+
+      nil ->
+        :missing
+    end
   end
 
   defp default_workflow_registry do

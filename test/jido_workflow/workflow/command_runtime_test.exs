@@ -880,6 +880,90 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert run["status"] == "failed"
   end
 
+  test "supports id fallback in workflow.run.list.requested filters", context do
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_list_id_1", workflow_id: "flow_id", backend: :direct},
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_failed(
+               "run_list_id_1",
+               :boom,
+               %{workflow_id: "flow_id", backend: :direct},
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_started(
+               %{run_id: "run_list_id_2", workflow_id: "flow_id", backend: :strategy},
+               context.run_store
+             )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{"id" => "  flow_id  ", "status" => "  FAILED  ", "limit" => "  1  "},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.accepted",
+                      data: %{"count" => 1, "runs" => [run]}
+                    }},
+                   5_000
+
+    assert run["run_id"] == "run_list_id_1"
+    assert run["workflow_id"] == "flow_id"
+    assert run["status"] == "failed"
+  end
+
+  test "does not use id fallback when workflow_id filter is explicitly provided", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{"workflow_id" => "   ", "id" => "flow_id", "status" => "failed"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.rejected",
+                      data: %{"reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "missing_or_invalid")
+    assert String.contains?(reason, "workflow_id")
+  end
+
+  test "rejects workflow.run.list.requested when id fallback filter is invalid", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{"id" => "   ", "status" => "failed"},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.rejected",
+                      data: %{"reason" => reason}
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "missing_or_invalid")
+    assert String.contains?(reason, "workflow_id")
+  end
+
   test "returns command runtime status for workflow.runtime.status.requested", context do
     assert {:ok, _published} =
              Bus.publish(context.bus, [
