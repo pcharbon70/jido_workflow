@@ -6,7 +6,7 @@ defmodule Jido.Code.Workflow.Broadcaster do
   alias Jido.Signal
   alias Jido.Signal.Bus
 
-  @default_source "/jido_workflow/workflow"
+  @default_source "/jido/code/workflow"
 
   @spec default_bus() :: atom()
   def default_bus do

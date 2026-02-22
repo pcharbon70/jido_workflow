@@ -179,7 +179,7 @@ defmodule Jido.Code.Workflow.Actions.ExecuteActionStepTest do
       "workflow_id" => "action_test_workflow",
       "run_id" => "run_action_1",
       "bus" => bus,
-      "source" => "/jido_workflow/workflow/workflow%3Aaction_test",
+      "source" => "/jido/code/workflow/workflow%3Aaction_test",
       "publish_events" => events
     }
   end

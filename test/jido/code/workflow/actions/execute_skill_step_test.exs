@@ -120,7 +120,7 @@ defmodule Jido.Code.Workflow.Actions.ExecuteSkillStepTest do
       "workflow_id" => "skill_test_workflow",
       "run_id" => "run_skill_1",
       "bus" => bus,
-      "source" => "/jido_workflow/workflow/workflow%3Askill_test",
+      "source" => "/jido/code/workflow/workflow%3Askill_test",
       "publish_events" => events
     }
   end

@@ -86,7 +86,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
   @trigger_runtime_status_accepted "workflow.trigger.runtime.status.accepted"
   @trigger_runtime_status_rejected "workflow.trigger.runtime.status.rejected"
 
-  @command_source "/jido_workflow/workflow/commands"
+  @command_source "/jido/code/workflow/commands"
 
   @type run_task :: %{
           pid: pid(),
