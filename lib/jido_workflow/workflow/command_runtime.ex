@@ -703,7 +703,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
           publish_command_response(
             state.bus,
             @definition_list_rejected,
-            %{"reason" => format_reason(reason)},
+            definition_list_rejected_payload(signal.data, reason),
             signal
           )
 
@@ -1114,6 +1114,13 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
     {:ok, %{include_disabled: true, include_invalid: true, limit: nil}}
   end
 
+  defp definition_list_rejected_payload(data, reason) do
+    %{"reason" => format_reason(reason)}
+    |> maybe_put("include_disabled", fetch_normalized_boolean_filter(data, "include_disabled"))
+    |> maybe_put("include_invalid", fetch_normalized_boolean_filter(data, "include_invalid"))
+    |> maybe_put("limit", fetch_normalized_limit_filter(data))
+  end
+
   defp normalize_required_workflow_id(data) when is_map(data) do
     workflow_id = fetch_requested_workflow_id(data)
 
@@ -1225,6 +1232,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
       limit when is_binary(limit) ->
         normalize_optional_binary(limit)
+
+      _other ->
+        nil
+    end
+  end
+
+  defp fetch_normalized_boolean_filter(data, key) do
+    case fetch(data, key) do
+      value when is_boolean(value) ->
+        value
+
+      value when is_binary(value) ->
+        normalize_optional_binary(value)
 
       _other ->
         nil

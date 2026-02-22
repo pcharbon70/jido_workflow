@@ -1360,6 +1360,73 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert definition["enabled"] == true
   end
 
+  test "normalizes workflow.definition.list.rejected filter payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.list.requested",
+                 %{
+                   "include_disabled" => "  maybe  ",
+                   "include_invalid" => "  true  ",
+                   "limit" => "  2  "
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.list.rejected",
+                      data: %{
+                        "include_disabled" => "maybe",
+                        "include_invalid" => "true",
+                        "limit" => "2",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "missing_or_invalid")
+    assert String.contains?(reason, "include_disabled")
+  end
+
+  test "echoes normalized filters when definition list requests fail after parsing", context do
+    missing_registry = unique_name("command_runtime_missing_workflow_registry")
+
+    _ =
+      :sys.replace_state(
+        context.command_runtime,
+        &Map.put(&1, :workflow_registry, missing_registry)
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.list.requested",
+                 %{
+                   "include_disabled" => "  false  ",
+                   "include_invalid" => "  true  ",
+                   "limit" => "  1  "
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.list.rejected",
+                      data: %{
+                        "include_disabled" => "false",
+                        "include_invalid" => "true",
+                        "limit" => "1",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "workflow_registry_unavailable")
+  end
+
   test "returns workflow definition for workflow.definition.get.requested", context do
     write_workflow(context.tmp_dir, "catalog_get_flow")
     assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
