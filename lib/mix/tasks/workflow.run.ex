@@ -228,12 +228,11 @@ defmodule Mix.Tasks.Workflow.Run do
     end
   end
 
-  # Command responses generally include requested_signal_id, but fall back to
-  # type-only matching for runtimes that omit correlation fields.
+  # Require explicit correlation to avoid consuming unrelated start responses.
   defp start_response_matches_request?(%Signal{} = signal, request_signal_id) do
     case fetch(signal.data, "requested_signal_id") do
       ^request_signal_id -> true
-      nil -> true
+      nil -> false
       _other -> false
     end
   end

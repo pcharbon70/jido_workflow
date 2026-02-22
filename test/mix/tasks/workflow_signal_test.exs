@@ -187,6 +187,86 @@ defmodule Mix.Tasks.Workflow.SignalTest do
     end
   end
 
+  test "ignores unrelated accepted responses and matches by requested_signal_id" do
+    Mix.Task.reenable("workflow.signal")
+
+    isolated_bus = unique_name("mix_task_signal_isolated_bus")
+    start_supervised!({Bus, name: isolated_bus})
+
+    request_type = "workflow.test.echo.requested"
+    accepted_type = "workflow.test.echo.accepted"
+    start_request_responder(isolated_bus, request_type, accepted_type)
+    assert_receive :request_responder_ready, 1_000
+
+    output =
+      capture_io(fn ->
+        Mix.Tasks.Workflow.Signal.run([
+          request_type,
+          "--no-start-app",
+          "--no-pretty",
+          "--bus",
+          Atom.to_string(isolated_bus),
+          "--source",
+          "/test/workflow.signal/correlation",
+          "--timeout",
+          "1000",
+          "--data",
+          ~s({"value":"correlated"})
+        ])
+      end)
+
+    payload = Jason.decode!(output)
+    request_id = get_in(payload, ["request", "id"])
+
+    assert payload["status"] == "accepted"
+    assert get_in(payload, ["response", "type"]) == accepted_type
+    assert get_in(payload, ["response", "data", "requested_signal_id"]) == request_id
+    assert get_in(payload, ["response", "data", "result"]) == "correlated"
+    assert_receive :request_responder_done, 2_000
+  end
+
+  defp start_request_responder(bus, request_type, accepted_type) do
+    parent = self()
+
+    spawn(fn ->
+      assert {:ok, _subscription_id} =
+               Bus.subscribe(bus, request_type, dispatch: {:pid, target: self()})
+
+      send(parent, :request_responder_ready)
+
+      receive do
+        {:signal, %Signal{} = request_signal} ->
+          # Publish noise first; the task should ignore this uncorrelated response.
+          assert {:ok, _published} =
+                   Bus.publish(bus, [
+                     Signal.new!(
+                       accepted_type,
+                       %{"result" => "noise"},
+                       source: "/test/workflow.signal/noise"
+                     )
+                   ])
+
+          Process.sleep(25)
+
+          assert {:ok, _published} =
+                   Bus.publish(bus, [
+                     Signal.new!(
+                       accepted_type,
+                       %{
+                         "requested_signal_id" => request_signal.id,
+                         "requested_signal_type" => request_signal.type,
+                         "requested_signal_source" => request_signal.source,
+                         "result" => "correlated"
+                       },
+                       source: "/test/workflow.signal/responder"
+                     )
+                   ])
+
+          send(parent, :request_responder_done)
+      end
+    end)
+  end
+
   defp write_workflow(dir, workflow_name) do
     markdown = """
     ---

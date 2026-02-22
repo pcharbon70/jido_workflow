@@ -126,6 +126,109 @@ defmodule Mix.Tasks.Workflow.ControlTest do
     assert get_in(payload, ["response", "type"]) == "workflow.runtime.status.accepted"
   end
 
+  test "definitions action maps to workflow.definition.list.requested", context do
+    output =
+      capture_io(fn ->
+        Control.run([
+          "definitions",
+          "--include-disabled",
+          "false",
+          "--include-invalid",
+          "false",
+          "--limit",
+          "2",
+          "--no-start-app",
+          "--no-pretty",
+          "--bus",
+          Atom.to_string(context.bus)
+        ])
+      end)
+
+    payload = Jason.decode!(output)
+
+    assert payload["status"] == "accepted"
+    assert get_in(payload, ["request", "type"]) == "workflow.definition.list.requested"
+
+    assert get_in(payload, ["request", "data"]) == %{
+             "include_disabled" => false,
+             "include_invalid" => false,
+             "limit" => 2
+           }
+
+    assert get_in(payload, ["response", "type"]) == "workflow.definition.list.accepted"
+  end
+
+  test "registry-refresh action maps to workflow.registry.refresh.requested", context do
+    output =
+      capture_io(fn ->
+        Control.run([
+          "registry-refresh",
+          "--no-start-app",
+          "--no-pretty",
+          "--bus",
+          Atom.to_string(context.bus)
+        ])
+      end)
+
+    payload = Jason.decode!(output)
+
+    assert payload["status"] == "accepted"
+    assert get_in(payload, ["request", "type"]) == "workflow.registry.refresh.requested"
+    assert get_in(payload, ["response", "type"]) == "workflow.registry.refresh.accepted"
+  end
+
+  test "trigger-runtime-status action maps to workflow.trigger.runtime.status.requested",
+       context do
+    output =
+      capture_io(fn ->
+        Control.run([
+          "trigger-runtime-status",
+          "--no-start-app",
+          "--no-pretty",
+          "--bus",
+          Atom.to_string(context.bus)
+        ])
+      end)
+
+    payload = Jason.decode!(output)
+
+    assert payload["status"] == "accepted"
+    assert get_in(payload, ["request", "type"]) == "workflow.trigger.runtime.status.requested"
+    assert get_in(payload, ["response", "type"]) == "workflow.trigger.runtime.status.accepted"
+  end
+
+  test "trigger-manual action maps to workflow.trigger.manual.requested", context do
+    output =
+      capture_io(fn ->
+        assert_raise Mix.Error, ~r/Signal rejected: workflow\.trigger\.manual\.rejected/, fn ->
+          Control.run([
+            "trigger-manual",
+            "--command",
+            "/workflow:unknown",
+            "--workflow-id",
+            "missing_flow",
+            "--params",
+            ~s({"value":"hello"}),
+            "--no-start-app",
+            "--no-pretty",
+            "--bus",
+            Atom.to_string(context.bus)
+          ])
+        end
+      end)
+
+    payload = Jason.decode!(output)
+
+    assert payload["status"] == "rejected"
+    assert get_in(payload, ["request", "type"]) == "workflow.trigger.manual.requested"
+
+    assert get_in(payload, ["request", "data"]) == %{
+             "command" => "/workflow:unknown",
+             "workflow_id" => "missing_flow",
+             "params" => %{"value" => "hello"}
+           }
+  end
+
   test "cancel action forwards reason in rejected request payload", context do
     output =
       capture_io(fn ->
@@ -155,6 +258,20 @@ defmodule Mix.Tasks.Workflow.ControlTest do
         Control.run([
           "mode",
           "run_123",
+          "--no-start-app",
+          "--no-pretty",
+          "--bus",
+          Atom.to_string(context.bus)
+        ])
+      end)
+    end
+  end
+
+  test "trigger-manual requires command or trigger-id", context do
+    assert_raise Mix.Error, ~r/trigger-manual requires one of: --trigger-id, --command/, fn ->
+      capture_io(fn ->
+        Control.run([
+          "trigger-manual",
           "--no-start-app",
           "--no-pretty",
           "--bus",
