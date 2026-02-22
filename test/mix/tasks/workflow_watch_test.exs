@@ -152,6 +152,26 @@ defmodule Mix.Tasks.Workflow.WatchTest do
     end
   end
 
+  test "raises for unknown --bus and does not intern a new atom" do
+    unknown_bus = unknown_atom_name("mix_task_watch_unknown_bus")
+    assert_atom_not_interned!(unknown_bus)
+
+    assert_raise Mix.Error, ~r/--bus must reference an existing atom name/, fn ->
+      capture_io(fn ->
+        Watch.run([
+          "--no-start-app",
+          "--no-pretty",
+          "--bus",
+          unknown_bus,
+          "--timeout",
+          "50"
+        ])
+      end)
+    end
+
+    assert_atom_not_interned!(unknown_bus)
+  end
+
   defp publish(bus, type, data) do
     case Bus.publish(bus, [Signal.new!(type, data, source: "/test/workflow.watch")]) do
       {:ok, _published} -> :ok
@@ -169,5 +189,24 @@ defmodule Mix.Tasks.Workflow.WatchTest do
 
   defp unique_name(prefix) do
     :"#{prefix}_#{System.unique_integer([:positive])}"
+  end
+
+  defp unknown_atom_name(prefix) do
+    candidate = "#{prefix}_#{System.unique_integer([:positive])}"
+
+    case safe_to_existing_atom(candidate) do
+      {:ok, _atom} -> unknown_atom_name(prefix)
+      :error -> candidate
+    end
+  end
+
+  defp assert_atom_not_interned!(name) when is_binary(name) do
+    assert :error == safe_to_existing_atom(name)
+  end
+
+  defp safe_to_existing_atom(name) when is_binary(name) do
+    {:ok, String.to_existing_atom(name)}
+  rescue
+    ArgumentError -> :error
   end
 end

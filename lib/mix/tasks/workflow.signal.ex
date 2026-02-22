@@ -141,11 +141,21 @@ defmodule Mix.Tasks.Workflow.Signal do
         Broadcaster.default_bus()
 
       normalized ->
-        String.to_atom(normalized)
+        to_existing_atom!(normalized)
     end
   end
 
   defp parse_bus(_bus), do: Broadcaster.default_bus()
+
+  defp to_existing_atom!(value) when is_binary(value) do
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError ->
+      Mix.raise(
+        "--bus must reference an existing atom name (got: #{inspect(value)}). " <>
+          "Start the bus first or use the default bus."
+      )
+  end
 
   defp normalize_timeout(value) when is_integer(value) and value > 0, do: value
   defp normalize_timeout(_value), do: @default_timeout_ms
