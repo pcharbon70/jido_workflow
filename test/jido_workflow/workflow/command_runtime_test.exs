@@ -661,6 +661,32 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "run_store_unavailable")
   end
 
+  test "echoes atom status filter when list requests fail after parsing", context do
+    missing_run_store = unique_name("command_runtime_missing_run_store")
+    _ = :sys.replace_state(context.command_runtime, &Map.put(&1, :run_store, missing_run_store))
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{"status" => :failed},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.rejected",
+                      data: %{
+                        "status" => "failed",
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "run_store_unavailable")
+  end
+
   test "routes pause/resume/cancel command signals through run controls", context do
     assert :ok =
              RunStore.record_started(
