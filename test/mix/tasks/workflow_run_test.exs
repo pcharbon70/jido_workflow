@@ -181,6 +181,28 @@ defmodule Mix.Tasks.Workflow.RunTest do
     end
   end
 
+  test "raises for unknown --bus and does not intern a new atom" do
+    unknown_bus = unknown_atom_name("mix_task_run_unknown_bus")
+    assert_atom_not_interned!(unknown_bus)
+
+    assert_raise Mix.Error, ~r/--bus must reference an existing atom name/, fn ->
+      capture_io(fn ->
+        Run.run([
+          "task_run_completed_flow",
+          "--no-start-app",
+          "--no-pretty",
+          "--no-await-completion",
+          "--bus",
+          unknown_bus,
+          "--inputs",
+          ~s({"value":"hello"})
+        ])
+      end)
+    end
+
+    assert_atom_not_interned!(unknown_bus)
+  end
+
   test "ignores unrelated start accepted responses and matches by requested_signal_id" do
     isolated_bus = unique_name("mix_task_run_isolated_bus")
     start_supervised!({Bus, name: isolated_bus})
@@ -293,6 +315,25 @@ defmodule Mix.Tasks.Workflow.RunTest do
 
   defp unique_name(prefix) do
     :"#{prefix}_#{System.unique_integer([:positive])}"
+  end
+
+  defp unknown_atom_name(prefix) do
+    candidate = "#{prefix}_#{System.unique_integer([:positive])}"
+
+    case safe_to_existing_atom(candidate) do
+      {:ok, _atom} -> unknown_atom_name(prefix)
+      :error -> candidate
+    end
+  end
+
+  defp assert_atom_not_interned!(name) when is_binary(name) do
+    assert :error == safe_to_existing_atom(name)
+  end
+
+  defp safe_to_existing_atom(name) when is_binary(name) do
+    {:ok, String.to_existing_atom(name)}
+  rescue
+    ArgumentError -> :error
   end
 
   defp start_run_start_responder(bus) do

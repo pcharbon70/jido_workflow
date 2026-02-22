@@ -301,11 +301,21 @@ defmodule Mix.Tasks.Workflow.Run do
     |> String.trim_leading(":")
     |> case do
       "" -> Broadcaster.default_bus()
-      normalized -> String.to_atom(normalized)
+      normalized -> to_existing_atom!(normalized)
     end
   end
 
   defp parse_bus(_bus), do: Broadcaster.default_bus()
+
+  defp to_existing_atom!(value) when is_binary(value) do
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError ->
+      Mix.raise(
+        "--bus must reference an existing atom name (got: #{inspect(value)}). " <>
+          "Start the bus first or use the default bus."
+      )
+  end
 
   defp subscribe_run_signal_patterns(bus) do
     Enum.reduce_while(@run_signal_patterns, {:ok, []}, fn pattern, {:ok, subscription_ids} ->
