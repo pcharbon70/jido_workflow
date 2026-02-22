@@ -26,7 +26,7 @@ Input references such as `` `input:foo` `` and result references such as `` `res
 
 - `SchemaValidator` enforces JSON schema contracts from `priv/schemas/*.schema.json`.
 - `Validator` enforces domain rules and normalizes into typed structs.
-- Errors are normalized as `JidoWorkflow.Workflow.ValidationError` with `path`, `code`, and `message`.
+- Errors are normalized as `Jido.Code.Workflow.ValidationError` with `path`, `code`, and `message`.
 
 ## Registry Behavior
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`JidoWorkflow.Workflow.CommandRuntime` is the public control plane for workflow operations.
+`Jido.Code.Workflow.CommandRuntime` is the public control plane for workflow operations.
 
 It subscribes to `workflow.*.requested` signals and emits response signals.
 

@@ -1,4 +1,4 @@
-defmodule JidoWorkflow.MixTasks.WorkflowRunTestActions.Echo do
+defmodule Jido.Code.Workflow.MixTasks.WorkflowRunTestActions.Echo do
   use Jido.Action,
     name: "mix_task_workflow_run_echo",
     schema: [
@@ -11,7 +11,7 @@ defmodule JidoWorkflow.MixTasks.WorkflowRunTestActions.Echo do
   end
 end
 
-defmodule JidoWorkflow.MixTasks.WorkflowRunTestActions.DelayedEcho do
+defmodule Jido.Code.Workflow.MixTasks.WorkflowRunTestActions.DelayedEcho do
   use Jido.Action,
     name: "mix_task_workflow_run_delayed_echo",
     schema: [
@@ -31,12 +31,12 @@ defmodule Mix.Tasks.Workflow.RunTest do
 
   import ExUnit.CaptureIO
 
+  alias Jido.Code.Workflow.CommandRuntime
+  alias Jido.Code.Workflow.Registry, as: WorkflowRegistry
+  alias Jido.Code.Workflow.RunStore
+  alias Jido.Code.Workflow.TriggerRuntime
+  alias Jido.Code.Workflow.TriggerSupervisor
   alias Jido.Signal.Bus
-  alias JidoWorkflow.Workflow.CommandRuntime
-  alias JidoWorkflow.Workflow.Registry, as: WorkflowRegistry
-  alias JidoWorkflow.Workflow.RunStore
-  alias JidoWorkflow.Workflow.TriggerRuntime
-  alias JidoWorkflow.Workflow.TriggerSupervisor
   alias Mix.Tasks.Workflow.Run
 
   setup do
@@ -214,7 +214,7 @@ defmodule Mix.Tasks.Workflow.RunTest do
 
     ### echo
     - **type**: action
-    - **module**: JidoWorkflow.MixTasks.WorkflowRunTestActions.Echo
+    - **module**: Jido.Code.Workflow.MixTasks.WorkflowRunTestActions.Echo
     - **inputs**:
       - value: `input:value`
 
@@ -241,7 +241,7 @@ defmodule Mix.Tasks.Workflow.RunTest do
 
     ### delayed_echo
     - **type**: action
-    - **module**: JidoWorkflow.MixTasks.WorkflowRunTestActions.DelayedEcho
+    - **module**: Jido.Code.Workflow.MixTasks.WorkflowRunTestActions.DelayedEcho
     - **inputs**:
       - value: `input:value`
       - delay_ms: `input:delay_ms`

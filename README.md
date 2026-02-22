@@ -1,6 +1,6 @@
-# JidoWorkflow
+# Jido.Code.Workflow
 
-`JidoWorkflow` is an Elixir application scaffold.
+`Jido.Code.Workflow` is an Elixir application scaffold.
 
 ## Running
 

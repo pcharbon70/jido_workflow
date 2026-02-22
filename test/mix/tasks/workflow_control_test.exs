@@ -3,12 +3,12 @@ defmodule Mix.Tasks.Workflow.ControlTest do
 
   import ExUnit.CaptureIO
 
+  alias Jido.Code.Workflow.CommandRuntime
+  alias Jido.Code.Workflow.Registry, as: WorkflowRegistry
+  alias Jido.Code.Workflow.RunStore
+  alias Jido.Code.Workflow.TriggerRuntime
+  alias Jido.Code.Workflow.TriggerSupervisor
   alias Jido.Signal.Bus
-  alias JidoWorkflow.Workflow.CommandRuntime
-  alias JidoWorkflow.Workflow.Registry, as: WorkflowRegistry
-  alias JidoWorkflow.Workflow.RunStore
-  alias JidoWorkflow.Workflow.TriggerRuntime
-  alias JidoWorkflow.Workflow.TriggerSupervisor
   alias Mix.Tasks.Workflow.Control
 
   setup do

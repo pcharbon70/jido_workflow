@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "JidoWorkflow Global Configuration",
+  "title": "Jido.Code.Workflow Global Configuration",
   "type": "object",
   "properties": {
     "workflow_dir": { "type": "string", "minLength": 1, "pattern": ".*\\S.*" },

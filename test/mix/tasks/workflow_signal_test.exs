@@ -1,4 +1,4 @@
-defmodule JidoWorkflow.MixTasks.WorkflowSignalTestActions.Echo do
+defmodule Jido.Code.Workflow.MixTasks.WorkflowSignalTestActions.Echo do
   use Jido.Action,
     name: "mix_task_workflow_signal_echo",
     schema: [
@@ -16,13 +16,13 @@ defmodule Mix.Tasks.Workflow.SignalTest do
 
   import ExUnit.CaptureIO
 
+  alias Jido.Code.Workflow.CommandRuntime
+  alias Jido.Code.Workflow.Registry, as: WorkflowRegistry
+  alias Jido.Code.Workflow.RunStore
+  alias Jido.Code.Workflow.TriggerRuntime
+  alias Jido.Code.Workflow.TriggerSupervisor
   alias Jido.Signal
   alias Jido.Signal.Bus
-  alias JidoWorkflow.Workflow.CommandRuntime
-  alias JidoWorkflow.Workflow.Registry, as: WorkflowRegistry
-  alias JidoWorkflow.Workflow.RunStore
-  alias JidoWorkflow.Workflow.TriggerRuntime
-  alias JidoWorkflow.Workflow.TriggerSupervisor
 
   setup do
     tmp_dir =
@@ -201,7 +201,7 @@ defmodule Mix.Tasks.Workflow.SignalTest do
 
     ### echo
     - **type**: action
-    - **module**: JidoWorkflow.MixTasks.WorkflowSignalTestActions.Echo
+    - **module**: Jido.Code.Workflow.MixTasks.WorkflowSignalTestActions.Echo
     - **inputs**:
       - value: `input:value`
 

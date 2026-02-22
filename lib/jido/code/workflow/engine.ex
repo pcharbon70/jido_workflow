@@ -1,0 +1,950 @@
+defmodule Jido.Code.Workflow.Engine do
+  @moduledoc """
+  Executes compiled workflows and emits lifecycle signals.
+
+  Supports two execution backends:
+  - `:direct` (default): execute Runic workflow directly in-process
+  - `:strategy`: execute through `Jido.Runic.Strategy` using an AgentServer
+  """
+
+  require Logger
+
+  alias Jido.Agent.Strategy.State, as: StratState
+  alias Jido.Code.Workflow.ArgumentResolver
+  alias Jido.Code.Workflow.Broadcaster
+  alias Jido.Code.Workflow.Compiler
+  alias Jido.Code.Workflow.Definition
+  alias Jido.Code.Workflow.InputContract
+  alias Jido.Code.Workflow.Registry
+  alias Jido.Code.Workflow.ReturnProjector
+  alias Jido.Code.Workflow.RunStore
+  alias Jido.Code.Workflow.RuntimeAgent
+  alias Jido.Signal
+  alias Runic.Workflow
+
+  @type backend :: :direct | :strategy
+
+  @type execution_result :: %{
+          run_id: String.t(),
+          workflow_id: String.t(),
+          status: :completed,
+          result: term(),
+          productions: [term()],
+          workflow: Workflow.t()
+        }
+
+  @workflow_context_input_key "__workflow"
+  @broadcast_event_step_started "step_started"
+  @broadcast_event_workflow_complete "workflow_complete"
+
+  @spec execute(String.t(), map(), keyword()) :: {:ok, execution_result()} | {:error, term()}
+  def execute(workflow_id, inputs, opts \\ []) when is_binary(workflow_id) and is_map(inputs) do
+    registry = Keyword.get(opts, :registry, Registry)
+
+    with {:ok, compiled} <- Registry.get_compiled(workflow_id, registry) do
+      execute_compiled(compiled, inputs, Keyword.put_new(opts, :workflow_id, workflow_id))
+    end
+  end
+
+  @spec get_run(String.t(), keyword()) :: {:ok, RunStore.run()} | {:error, :not_found}
+  def get_run(run_id, opts \\ []) when is_binary(run_id) do
+    RunStore.get(run_id, run_store(opts))
+  end
+
+  @spec pause(String.t(), keyword()) :: :ok | {:error, term()}
+  def pause(run_id, opts \\ []) when is_binary(run_id) do
+    store = run_store(opts)
+
+    with :ok <- RunStore.mark_paused(run_id, %{}, store),
+         {:ok, run} <- RunStore.get(run_id, store) do
+      _ = maybe_broadcast_paused(run, opts)
+      :ok
+    end
+  end
+
+  @spec resume(String.t(), keyword()) :: :ok | {:error, term()}
+  def resume(run_id, opts \\ []) when is_binary(run_id) do
+    store = run_store(opts)
+
+    with :ok <- RunStore.mark_resumed(run_id, %{}, store),
+         {:ok, run} <- RunStore.get(run_id, store) do
+      _ = maybe_broadcast_resumed(run, opts)
+      :ok
+    end
+  end
+
+  @spec cancel(String.t(), keyword()) :: :ok | {:error, term()}
+  def cancel(run_id, opts \\ []) when is_binary(run_id) do
+    reason = Keyword.get(opts, :reason, :cancelled)
+    store = run_store(opts)
+
+    with :ok <- RunStore.mark_cancelled(run_id, reason, %{}, store),
+         {:ok, run} <- RunStore.get(run_id, store) do
+      _ = maybe_broadcast_cancelled(run, reason, opts)
+      :ok
+    end
+  end
+
+  @spec list_runs(keyword()) :: [RunStore.run()]
+  def list_runs(opts \\ []) do
+    store = run_store(opts)
+    list_opts = Keyword.drop(opts, [:run_store])
+    RunStore.list(store, list_opts)
+  end
+
+  @spec execute_definition(Definition.t(), map(), keyword()) ::
+          {:ok, execution_result()} | {:error, term()}
+  def execute_definition(%Definition{} = definition, inputs, opts \\ []) when is_map(inputs) do
+    with {:ok, compiled} <- Compiler.compile(definition) do
+      execute_compiled(compiled, inputs, opts)
+    end
+  end
+
+  @spec execute_compiled(map(), map(), keyword()) :: {:ok, execution_result()} | {:error, term()}
+  def execute_compiled(compiled, inputs, opts \\ []) when is_map(compiled) and is_map(inputs) do
+    with {:ok, backend} <- resolve_backend(opts) do
+      workflow_id = workflow_id(compiled, opts)
+      run_id = Keyword.get_lazy(opts, :run_id, &generate_run_id/0)
+      settings = compiled_settings(compiled)
+      input_schema = compiled_input_schema(compiled)
+      normalized_inputs = normalize_inputs(inputs)
+      run_store = run_store(opts)
+
+      case InputContract.normalize_inputs(normalized_inputs, input_schema) do
+        {:ok, validated_inputs} ->
+          execute_with_valid_inputs(
+            compiled,
+            backend,
+            workflow_id,
+            run_id,
+            settings,
+            validated_inputs,
+            run_store,
+            opts
+          )
+
+        {:error, validation_errors} ->
+          reason = {:invalid_inputs, validation_errors}
+
+          _ =
+            maybe_record_failed_run(
+              run_store,
+              run_id,
+              workflow_id,
+              backend,
+              normalized_inputs,
+              reason
+            )
+
+          _ = maybe_broadcast_failed(compiled, workflow_id, run_id, reason, opts)
+          {:error, reason}
+      end
+    end
+  end
+
+  defp execute_with_valid_inputs(
+         compiled,
+         backend,
+         workflow_id,
+         run_id,
+         settings,
+         inputs,
+         run_store,
+         opts
+       ) do
+    workflow_context = workflow_runtime_context(compiled, workflow_id, run_id, backend, opts)
+
+    state = %{
+      "inputs" => Map.put(inputs, @workflow_context_input_key, workflow_context),
+      "results" => %{}
+    }
+
+    metadata =
+      %{
+        "inputs" => Map.delete(state["inputs"], @workflow_context_input_key),
+        "backend" => Atom.to_string(backend)
+      }
+      |> maybe_put_setting_metadata(settings)
+
+    _ = maybe_record_started_run(run_store, run_id, workflow_id, backend, inputs)
+    _ = maybe_broadcast_started(compiled, workflow_id, run_id, metadata, opts)
+
+    case run_backend(backend, compiled.workflow, state, workflow_id, opts, settings) do
+      {:ok, executed, productions} ->
+        handle_projected_result(
+          compiled,
+          workflow_id,
+          run_id,
+          executed,
+          productions,
+          state,
+          run_store,
+          opts
+        )
+
+      {:error, reason} ->
+        handle_failure(
+          compiled,
+          workflow_id,
+          run_id,
+          {:execution_failed, reason},
+          state,
+          [],
+          run_store,
+          opts
+        )
+    end
+  end
+
+  defp run_backend(:direct, workflow, state, _workflow_id, opts, settings) do
+    runic_opts = runic_opts(opts, settings)
+
+    try do
+      executed = Workflow.react_until_satisfied(workflow, state, runic_opts)
+      {:ok, executed, Workflow.raw_productions(executed)}
+    rescue
+      exception ->
+        {:error, {:exception, Exception.message(exception)}}
+    catch
+      kind, reason ->
+        {:error, {:caught, kind, reason}}
+    end
+  end
+
+  defp run_backend(:strategy, workflow, state, workflow_id, opts, settings) do
+    with_runtime_agent(opts, fn pid ->
+      with :ok <- set_runtime_workflow(pid, workflow, workflow_id),
+           :ok <- feed_runtime_inputs(pid, state, workflow_id),
+           {:ok, completion} <- await_runtime_completion(pid, opts, settings),
+           :ok <- ensure_runtime_completed(completion),
+           {:ok, executed} <- fetch_runtime_workflow(pid) do
+        {:ok, executed, Workflow.raw_productions(executed)}
+      end
+    end)
+  end
+
+  defp handle_projected_result(
+         compiled,
+         workflow_id,
+         run_id,
+         executed,
+         productions,
+         state,
+         run_store,
+         opts
+       ) do
+    case ReturnProjector.project(productions, compiled[:return]) do
+      {:ok, result} ->
+        _ =
+          maybe_record_completed_run(
+            run_store,
+            run_id,
+            workflow_id,
+            fetch_backend_from_state(state),
+            workflow_inputs_from_state(state),
+            result
+          )
+
+        _ = maybe_broadcast_completed(compiled, workflow_id, run_id, result, opts)
+
+        {:ok,
+         %{
+           run_id: run_id,
+           workflow_id: workflow_id,
+           status: :completed,
+           result: result,
+           productions: productions,
+           workflow: executed
+         }}
+
+      {:error, reason} ->
+        handle_failure(
+          compiled,
+          workflow_id,
+          run_id,
+          {:return_projection_failed, reason},
+          state,
+          productions,
+          run_store,
+          opts
+        )
+    end
+  end
+
+  defp handle_failure(
+         compiled,
+         workflow_id,
+         run_id,
+         error,
+         initial_state,
+         productions,
+         run_store,
+         opts
+       ) do
+    _ =
+      maybe_record_failed_run(
+        run_store,
+        run_id,
+        workflow_id,
+        fetch_backend_from_state(initial_state),
+        workflow_inputs_from_state(initial_state),
+        error
+      )
+
+    _ =
+      maybe_apply_failure_policy(compiled, workflow_id, run_id, error, initial_state, productions)
+
+    _ = maybe_broadcast_failed(compiled, workflow_id, run_id, error, opts)
+    {:error, error}
+  end
+
+  defp with_runtime_agent(opts, fun) when is_function(fun, 1) do
+    debug = Keyword.get(opts, :debug_runtime, false)
+
+    with :ok <- ensure_runtime_dependencies() do
+      case Jido.AgentServer.start_link(
+             agent: RuntimeAgent,
+             jido: Jido,
+             debug: debug,
+             register_global: false,
+             skip_schedules: true
+           ) do
+        {:ok, pid} ->
+          Process.unlink(pid)
+          _ = maybe_invoke_runtime_callback(opts, :on_runtime_agent_started, pid)
+
+          try do
+            fun.(pid)
+          after
+            _ = maybe_invoke_runtime_callback(opts, :on_runtime_agent_stopped, pid)
+            stop_runtime_agent(pid)
+          end
+
+        {:error, reason} ->
+          {:error, {:agent_start_failed, reason}}
+      end
+    end
+  end
+
+  defp set_runtime_workflow(pid, workflow, workflow_id) do
+    signal =
+      Signal.new!(
+        "runic.set_workflow",
+        %{workflow: workflow},
+        source: runtime_source(workflow_id, "set_workflow")
+      )
+
+    case Jido.AgentServer.call(pid, signal) do
+      {:ok, _agent} -> :ok
+      {:error, reason} -> {:error, {:set_workflow_failed, reason}}
+    end
+  end
+
+  defp feed_runtime_inputs(pid, state, workflow_id) do
+    signal =
+      Signal.new!(
+        "runic.feed",
+        %{data: state},
+        source: runtime_source(workflow_id, "feed")
+      )
+
+    case Jido.AgentServer.cast(pid, signal) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:feed_failed, reason}}
+    end
+  end
+
+  defp await_runtime_completion(pid, opts, settings) do
+    timeout = resolve_await_timeout(opts, settings)
+
+    case Jido.AgentServer.await_completion(pid, timeout: timeout) do
+      {:ok, completion} -> {:ok, completion}
+      {:error, reason} -> {:error, {:await_completion_failed, reason}}
+    end
+  end
+
+  defp ensure_runtime_completed(%{status: :completed}), do: :ok
+
+  defp ensure_runtime_completed(%{status: :failed} = completion) do
+    {:error, {:runic_failed, Map.get(completion, :result)}}
+  end
+
+  defp ensure_runtime_completed(other), do: {:error, {:unexpected_completion_status, other}}
+
+  defp fetch_runtime_workflow(pid) do
+    with {:ok, server_state} <- Jido.AgentServer.state(pid) do
+      strat = StratState.get(server_state.agent, %{})
+
+      case Map.get(strat, :workflow) do
+        %Workflow{} = workflow -> {:ok, workflow}
+        other -> {:error, {:missing_strategy_workflow, other}}
+      end
+    end
+  end
+
+  defp stop_runtime_agent(pid) when is_pid(pid) do
+    if Process.alive?(pid) do
+      GenServer.stop(pid, :normal, 1_000)
+    else
+      :ok
+    end
+  catch
+    :exit, _reason ->
+      :ok
+  end
+
+  defp ensure_runtime_dependencies do
+    with {:ok, _apps} <- Application.ensure_all_started(:jido),
+         {:ok, _apps} <- Application.ensure_all_started(:jido_runic),
+         {:ok, _pid} <- Jido.start(name: Jido) do
+      :ok
+    else
+      {:error, reason} ->
+        {:error, {:runtime_dependencies_failed, reason}}
+    end
+  end
+
+  defp maybe_invoke_runtime_callback(opts, key, pid) do
+    case Keyword.get(opts, key) do
+      callback when is_function(callback, 1) ->
+        callback.(pid)
+        :ok
+
+      _other ->
+        :ok
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "Runtime callback #{inspect(key)} failed for #{inspect(pid)}: #{Exception.message(exception)}"
+      )
+
+      :ok
+  end
+
+  defp resolve_backend(opts) do
+    backend = Keyword.get(opts, :backend, default_backend())
+
+    if backend in [:direct, :strategy] do
+      {:ok, backend}
+    else
+      {:error, {:invalid_backend, backend}}
+    end
+  end
+
+  defp default_backend do
+    Application.get_env(:jido_workflow, :engine_backend, :direct)
+  end
+
+  defp workflow_id(compiled, opts) do
+    Keyword.get_lazy(opts, :workflow_id, fn ->
+      compiled
+      |> get_in([:metadata, :name])
+      |> case do
+        name when is_binary(name) and name != "" -> name
+        _ -> "workflow"
+      end
+    end)
+  end
+
+  defp normalize_inputs(inputs) do
+    inputs
+    |> ArgumentResolver.normalize_state()
+    |> Map.get("inputs", %{})
+  end
+
+  defp run_store(opts) do
+    Keyword.get_lazy(opts, :run_store, &default_run_store/0)
+  end
+
+  defp default_run_store do
+    Application.get_env(:jido_workflow, :run_store, RunStore)
+  end
+
+  defp runic_opts(opts, settings) do
+    async? = Keyword.get(opts, :async, false)
+    timeout = Keyword.get(opts, :timeout, workflow_timeout(settings) || :infinity)
+
+    max_concurrency =
+      case Keyword.get(opts, :max_concurrency, workflow_max_concurrency(settings)) do
+        value when is_integer(value) and value > 0 -> value
+        _ -> nil
+      end
+
+    [
+      async: async?,
+      timeout: timeout,
+      max_concurrency: max_concurrency
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp maybe_broadcast_paused(run, opts) do
+    Broadcaster.broadcast_workflow_paused(
+      run.workflow_id,
+      run.run_id,
+      %{"backend" => format_backend(run.backend)},
+      bus: Keyword.get(opts, :bus, Broadcaster.default_bus())
+    )
+  end
+
+  defp maybe_broadcast_resumed(run, opts) do
+    Broadcaster.broadcast_workflow_resumed(
+      run.workflow_id,
+      run.run_id,
+      %{"backend" => format_backend(run.backend)},
+      bus: Keyword.get(opts, :bus, Broadcaster.default_bus())
+    )
+  end
+
+  defp maybe_broadcast_cancelled(run, reason, opts) do
+    Broadcaster.broadcast_workflow_cancelled(
+      run.workflow_id,
+      run.run_id,
+      reason,
+      bus: Keyword.get(opts, :bus, Broadcaster.default_bus())
+    )
+  end
+
+  defp maybe_broadcast_started(compiled, workflow_id, run_id, metadata, opts) do
+    if broadcast_event_enabled?(compiled, @broadcast_event_step_started) do
+      Broadcaster.broadcast_workflow_started(
+        workflow_id,
+        run_id,
+        metadata,
+        broadcast_opts(compiled, opts)
+      )
+    else
+      :ok
+    end
+  end
+
+  defp maybe_broadcast_completed(compiled, workflow_id, run_id, result, opts) do
+    if broadcast_event_enabled?(compiled, @broadcast_event_workflow_complete) do
+      Broadcaster.broadcast_workflow_completed(
+        workflow_id,
+        run_id,
+        result,
+        broadcast_opts(compiled, opts)
+      )
+    else
+      :ok
+    end
+  end
+
+  defp maybe_broadcast_failed(compiled, workflow_id, run_id, reason, opts) do
+    if broadcast_event_enabled?(compiled, @broadcast_event_workflow_complete) do
+      Broadcaster.broadcast_workflow_failed(
+        workflow_id,
+        run_id,
+        reason,
+        broadcast_opts(compiled, opts)
+      )
+    else
+      :ok
+    end
+  end
+
+  defp broadcast_opts(compiled, opts) do
+    [bus: Keyword.get(opts, :bus, Broadcaster.default_bus())]
+    |> maybe_put_opt(:source, signal_source(compiled_signal_policy(compiled)))
+  end
+
+  defp maybe_put_setting_metadata(metadata, settings) do
+    metadata
+    |> maybe_put("timeout_ms", workflow_timeout(settings))
+    |> maybe_put("max_concurrency", workflow_max_concurrency(settings))
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp runtime_source(workflow_id, suffix) do
+    "/jido_workflow/workflow/#{workflow_id}/#{suffix}"
+  end
+
+  defp compiled_settings(compiled) when is_map(compiled) do
+    case Map.get(compiled, :settings) || Map.get(compiled, "settings") do
+      %{} = settings -> settings
+      _ -> %{}
+    end
+  end
+
+  defp compiled_input_schema(compiled) when is_map(compiled) do
+    case Map.get(compiled, :input_schema) || Map.get(compiled, "input_schema") do
+      schema when is_list(schema) -> schema
+      _ -> []
+    end
+  end
+
+  defp compiled_error_handling(compiled) when is_map(compiled) do
+    case Map.get(compiled, :error_handling) || Map.get(compiled, "error_handling") do
+      handlers when is_list(handlers) -> handlers
+      _ -> []
+    end
+  end
+
+  defp broadcast_event_enabled?(compiled, event_name) do
+    case signal_publish_events(compiled_signal_policy(compiled)) do
+      nil -> true
+      events -> event_name in events
+    end
+  end
+
+  defp compiled_signal_policy(compiled) when is_map(compiled) do
+    case Map.get(compiled, :signals) || Map.get(compiled, "signals") do
+      %{} = signals -> signals
+      _ -> nil
+    end
+  end
+
+  defp signal_publish_events(nil), do: nil
+
+  defp signal_publish_events(signal_policy) when is_map(signal_policy) do
+    case Map.get(signal_policy, :publish_events) || Map.get(signal_policy, "publish_events") do
+      events when is_list(events) -> events
+      _ -> nil
+    end
+  end
+
+  defp signal_source(nil), do: nil
+
+  defp signal_source(signal_policy) when is_map(signal_policy) do
+    case Map.get(signal_policy, :topic) || Map.get(signal_policy, "topic") do
+      topic when is_binary(topic) and topic != "" ->
+        "/jido_workflow/workflow/" <> URI.encode_www_form(topic)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp signal_topic(nil), do: nil
+
+  defp signal_topic(signal_policy) when is_map(signal_policy) do
+    case Map.get(signal_policy, :topic) || Map.get(signal_policy, "topic") do
+      topic when is_binary(topic) and topic != "" -> topic
+      _ -> nil
+    end
+  end
+
+  defp workflow_runtime_context(compiled, workflow_id, run_id, backend, opts) do
+    signal_policy = compiled_signal_policy(compiled)
+
+    %{
+      "workflow_id" => workflow_id,
+      "run_id" => run_id,
+      "backend" => Atom.to_string(backend),
+      "bus" => Keyword.get(opts, :bus, Broadcaster.default_bus()),
+      "source" => signal_source(signal_policy),
+      "signal_topic" => signal_topic(signal_policy),
+      "publish_events" => signal_publish_events(signal_policy)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp maybe_record_started_run(run_store, run_id, workflow_id, backend, inputs) do
+    maybe_record_run_store("started", run_id, fn ->
+      RunStore.record_started(
+        %{
+          run_id: run_id,
+          workflow_id: workflow_id,
+          backend: backend,
+          inputs: inputs
+        },
+        run_store
+      )
+    end)
+  end
+
+  defp maybe_record_completed_run(run_store, run_id, workflow_id, backend, inputs, result) do
+    maybe_record_run_store("completed", run_id, fn ->
+      RunStore.record_completed(
+        run_id,
+        result,
+        %{
+          workflow_id: workflow_id,
+          backend: backend,
+          inputs: inputs
+        },
+        run_store
+      )
+    end)
+  end
+
+  defp maybe_record_failed_run(run_store, run_id, workflow_id, backend, inputs, error) do
+    maybe_record_run_store("failed", run_id, fn ->
+      RunStore.record_failed(
+        run_id,
+        error,
+        %{
+          workflow_id: workflow_id,
+          backend: backend,
+          inputs: inputs
+        },
+        run_store
+      )
+    end)
+  end
+
+  defp maybe_record_run_store(status, run_id, fun)
+       when is_binary(status) and is_function(fun, 0) do
+    fun.()
+  rescue
+    exception ->
+      Logger.warning("Failed to record #{status} run #{run_id}: #{Exception.message(exception)}")
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning("Failed to record #{status} run #{run_id}: #{inspect(reason)}")
+      :ok
+  end
+
+  defp workflow_inputs_from_state(state) do
+    state
+    |> ArgumentResolver.normalize_state()
+    |> Map.get("inputs", %{})
+    |> Map.delete(@workflow_context_input_key)
+  end
+
+  defp fetch_backend_from_state(state) do
+    state
+    |> ArgumentResolver.normalize_state()
+    |> get_in(["inputs", @workflow_context_input_key, "backend"])
+    |> case do
+      :strategy -> :strategy
+      :direct -> :direct
+      "strategy" -> :strategy
+      "direct" -> :direct
+      _ -> nil
+    end
+  end
+
+  defp workflow_timeout(settings) do
+    case fetch_setting(settings, :timeout_ms) do
+      value when is_integer(value) and value > 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp workflow_max_concurrency(settings) do
+    case fetch_setting(settings, :max_concurrency) do
+      value when is_integer(value) and value > 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp resolve_await_timeout(opts, settings) do
+    timeout =
+      Keyword.get_lazy(opts, :await_timeout, fn ->
+        Keyword.get_lazy(opts, :timeout, fn ->
+          workflow_timeout(settings) || 300_000
+        end)
+      end)
+
+    normalize_await_timeout(timeout)
+  end
+
+  defp normalize_await_timeout(:infinity), do: :infinity
+  defp normalize_await_timeout(timeout) when is_integer(timeout) and timeout > 0, do: timeout
+  defp normalize_await_timeout(_timeout), do: 300_000
+
+  defp fetch_setting(settings, key) when is_map(settings) do
+    Map.get(settings, key) || Map.get(settings, Atom.to_string(key))
+  end
+
+  defp maybe_put_opt(opts, _key, nil), do: opts
+  defp maybe_put_opt(opts, key, value), do: Keyword.put(opts, key, value)
+
+  defp format_backend(backend) when backend in [:direct, :strategy], do: Atom.to_string(backend)
+  defp format_backend(_backend), do: nil
+
+  defp maybe_apply_failure_policy(
+         compiled,
+         workflow_id,
+         run_id,
+         error,
+         initial_state,
+         productions
+       ) do
+    settings = compiled_settings(compiled)
+    policy = fetch_setting(settings, :on_failure)
+
+    if policy == "compensate" do
+      state = compensation_state(initial_state, productions)
+      handlers = compiled_error_handling(compiled)
+      execute_compensation_handlers(handlers, state, workflow_id, run_id, error)
+    else
+      :ok
+    end
+  end
+
+  defp compensation_state(initial_state, productions) do
+    normalized_initial = ArgumentResolver.normalize_state(initial_state)
+    ArgumentResolver.normalize_state([normalized_initial | List.wrap(productions)])
+  end
+
+  defp execute_compensation_handlers(handlers, state, workflow_id, run_id, error)
+       when is_list(handlers) do
+    Enum.each(handlers, fn handler ->
+      case normalize_compensation_handler(handler) do
+        {:ok, handler_meta} ->
+          _ = run_compensation_handler(handler_meta, state, workflow_id, run_id, error)
+          :ok
+
+        :skip ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Skipping invalid compensation handler: #{inspect(reason)}")
+      end
+    end)
+  end
+
+  defp normalize_compensation_handler(handler) when is_map(handler) do
+    handler_name = fetch(handler, "handler")
+
+    action = fetch(handler, "action")
+    inputs = fetch(handler, "inputs")
+
+    cond do
+      not compensation_handler?(handler_name) ->
+        :skip
+
+      is_nil(action) ->
+        {:error, {:missing_action, handler_name}}
+
+      not (is_map(inputs) or is_list(inputs) or is_nil(inputs)) ->
+        {:error, {:invalid_inputs, handler_name, inputs}}
+
+      true ->
+        {:ok,
+         %{
+           handler: handler_name,
+           action: action,
+           inputs: inputs
+         }}
+    end
+  end
+
+  defp normalize_compensation_handler(other), do: {:error, {:invalid_handler, other}}
+
+  defp run_compensation_handler(handler_meta, state, workflow_id, run_id, workflow_error) do
+    with {:ok, action_module} <- resolve_module(handler_meta.action),
+         {:ok, resolved_inputs} <- ArgumentResolver.resolve_inputs(handler_meta.inputs, state),
+         {:ok, _result} <-
+           run_compensation_action(
+             action_module,
+             resolved_inputs,
+             handler_meta.handler,
+             workflow_id,
+             run_id,
+             workflow_error
+           ) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning(
+          "Compensation handler #{inspect(handler_meta.handler)} failed: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp run_compensation_action(
+         action_module,
+         resolved_inputs,
+         handler_name,
+         workflow_id,
+         run_id,
+         workflow_error
+       ) do
+    context = %{
+      workflow_handler: handler_name,
+      workflow_id: workflow_id,
+      workflow_run_id: run_id,
+      workflow_error: workflow_error
+    }
+
+    case Jido.Exec.run(action_module, atomize_top_level_keys(resolved_inputs), context) do
+      {:ok, result} -> {:ok, result}
+      {:ok, result, _extra} -> {:ok, result}
+      {:error, reason} -> {:error, {:action_failed, reason}}
+    end
+  end
+
+  defp compensation_handler?(name) when is_binary(name),
+    do: String.starts_with?(name, "compensate:")
+
+  defp compensation_handler?(_name), do: false
+
+  defp resolve_module(module) when is_atom(module), do: {:ok, module}
+
+  defp resolve_module(module) when is_binary(module) do
+    qualified =
+      if String.starts_with?(module, "Elixir.") do
+        module
+      else
+        "Elixir." <> module
+      end
+
+    try do
+      resolved = String.to_existing_atom(qualified)
+
+      if Code.ensure_loaded?(resolved) do
+        {:ok, resolved}
+      else
+        {:error, {:module_not_loaded, module}}
+      end
+    rescue
+      ArgumentError ->
+        {:error, {:module_not_loaded, module}}
+    end
+  end
+
+  defp resolve_module(other), do: {:error, {:invalid_module, other}}
+
+  defp atomize_top_level_keys(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      converted_key =
+        case key do
+          atom when is_atom(atom) ->
+            atom
+
+          binary when is_binary(binary) ->
+            try do
+              String.to_existing_atom(binary)
+            rescue
+              ArgumentError -> binary
+            end
+
+          other ->
+            other
+        end
+
+      Map.put(acc, converted_key, value)
+    end)
+  end
+
+  defp fetch(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || fetch_atom_key(map, key)
+  end
+
+  defp fetch(_map, _key), do: nil
+
+  defp fetch_atom_key(map, key) do
+    Enum.find_value(map, fn
+      {atom_key, value} when is_atom(atom_key) ->
+        if Atom.to_string(atom_key) == key, do: value
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp generate_run_id do
+    "run_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+  end
+end

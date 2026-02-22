@@ -13,13 +13,13 @@
 
 ## Major Runtime Components
 
-- `JidoWorkflow.Application`: Boots bus, registry, command runtime, trigger runtime, run store, and hook runtime.
-- `JidoWorkflow.Workflow.Registry`: Discovers, parses, validates, compiles, and caches workflow definitions.
-- `JidoWorkflow.Workflow.CommandRuntime`: Handles `workflow.*.requested` control signals and emits accepted/rejected responses.
-- `JidoWorkflow.Workflow.Engine`: Executes compiled workflows through `:direct` or `:strategy` backends.
-- `JidoWorkflow.Workflow.TriggerRuntime`: Reconciles desired triggers against active trigger processes.
-- `JidoWorkflow.Workflow.RunStore`: Tracks run state and lifecycle transitions.
-- `JidoWorkflow.Workflow.Broadcaster`: Emits lifecycle signals (`workflow.run.*`, `workflow.step.*`, `workflow.agent.state`).
+- `Jido.Code.Workflow.Application`: Boots bus, registry, command runtime, trigger runtime, run store, and hook runtime.
+- `Jido.Code.Workflow.Registry`: Discovers, parses, validates, compiles, and caches workflow definitions.
+- `Jido.Code.Workflow.CommandRuntime`: Handles `workflow.*.requested` control signals and emits accepted/rejected responses.
+- `Jido.Code.Workflow.Engine`: Executes compiled workflows through `:direct` or `:strategy` backends.
+- `Jido.Code.Workflow.TriggerRuntime`: Reconciles desired triggers against active trigger processes.
+- `Jido.Code.Workflow.RunStore`: Tracks run state and lifecycle transitions.
+- `Jido.Code.Workflow.Broadcaster`: Emits lifecycle signals (`workflow.run.*`, `workflow.step.*`, `workflow.agent.state`).
 
 ## High-Level Flow
 

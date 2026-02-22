@@ -1,0 +1,801 @@
+defmodule Jido.Code.Workflow.ValidatorTest do
+  use ExUnit.Case, async: true
+
+  alias Jido.Code.Workflow.Definition
+  alias Jido.Code.Workflow.Validator
+
+  describe "validate/1" do
+    test "normalizes a valid definition into typed structs" do
+      attrs = %{
+        "name" => "code_review_pipeline",
+        "version" => "1.0.0",
+        "enabled" => true,
+        "inputs" => [
+          %{"name" => "file_path", "type" => "string", "required" => true}
+        ],
+        "triggers" => [
+          %{"type" => "signal", "patterns" => ["code.review.requested"]}
+        ],
+        "settings" => %{
+          "max_concurrency" => 4,
+          "timeout_ms" => 300_000,
+          "retry_policy" => %{
+            "max_retries" => 3,
+            "backoff" => "exponential",
+            "base_delay_ms" => 1000
+          },
+          "on_failure" => "compensate"
+        },
+        "signals" => %{
+          "topic" => "workflow:code_review_pipeline",
+          "publish_events" => ["step_started", "workflow_complete"]
+        },
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "JidoCode.Actions.ParseElixirFile",
+            "inputs" => %{"file_path" => "`input:file_path`"}
+          },
+          %{
+            "name" => "ai_code_review",
+            "type" => "agent",
+            "agent" => "code_reviewer",
+            "callback_signal" => "security.scan.complete",
+            "depends_on" => ["parse_file"]
+          }
+        ],
+        "return" => %{"value" => "ai_code_review"}
+      }
+
+      assert {:ok, %Definition{} = definition} = Validator.validate(attrs)
+      assert definition.name == "code_review_pipeline"
+      assert definition.version == "1.0.0"
+      assert length(definition.inputs) == 1
+      assert length(definition.triggers) == 1
+      assert length(definition.steps) == 2
+      assert definition.settings.max_concurrency == 4
+      assert definition.signals.topic == "workflow:code_review_pipeline"
+      assert definition.signals.publish_events == ["step_started", "workflow_complete"]
+      assert Enum.at(definition.steps, 1).callback_signal == "security.scan.complete"
+    end
+
+    test "returns path-aware errors for invalid name and version" do
+      attrs = %{
+        "name" => "Bad-Name",
+        "version" => "v1",
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+      assert Enum.any?(errors, &(&1.path == ["name"] and &1.code == :invalid_format))
+      assert Enum.any?(errors, &(&1.path == ["version"] and &1.code == :invalid_format))
+    end
+
+    test "requires module for action steps" do
+      attrs = %{
+        "name" => "example_workflow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{"name" => "parse", "type" => "action"}
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "module"] and error.code == :required
+             end)
+    end
+
+    test "requires module for skill steps" do
+      attrs = %{
+        "name" => "example_workflow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{"name" => "apply_skill", "type" => "skill"}
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "module"] and error.code == :required
+             end)
+    end
+
+    test "rejects unsupported trigger types" do
+      attrs = %{
+        "name" => "example_workflow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{"type" => "unknown_trigger"}
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "type"] and error.code == :invalid_value
+             end)
+    end
+
+    test "validates callback_signal type for steps" do
+      attrs = %{
+        "name" => "example_workflow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "ai_code_review",
+            "type" => "agent",
+            "agent" => "code_reviewer",
+            "callback_signal" => 123
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "callback_signal"] and error.code == :invalid_type
+             end)
+    end
+
+    test "rejects whitespace-only callback_signal values" do
+      attrs = %{
+        "name" => "example_workflow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "ai_code_review",
+            "type" => "agent",
+            "agent" => "code_reviewer",
+            "callback_signal" => "  "
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "callback_signal"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects whitespace-only signals.topic and return.value" do
+      attrs = %{
+        "name" => "whitespace_signal_topic_and_return_value_flow",
+        "version" => "1.0.0",
+        "signals" => %{
+          "topic" => " "
+        },
+        "return" => %{
+          "value" => "\n"
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["signals", "topic"] and error.code == :invalid_value
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["return", "value"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects unknown top-level keys" do
+      attrs = %{
+        "name" => "unknown_top_level_key_flow",
+        "version" => "1.0.0",
+        "steps" => [],
+        "unexpected" => true
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+      assert Enum.any?(errors, &(&1.path == ["unexpected"] and &1.code == :unknown_key))
+    end
+
+    test "rejects unknown signal-policy keys" do
+      attrs = %{
+        "name" => "unknown_signal_key_flow",
+        "version" => "1.0.0",
+        "signals" => %{
+          "topic" => "workflow:unknown_signal_key_flow",
+          "publish_events" => ["workflow_complete"],
+          "unexpected_signal_key" => true
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["signals", "unexpected_signal_key"] and error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown trigger keys" do
+      attrs = %{
+        "name" => "unknown_trigger_key_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "manual",
+            "command" => "/workflow:unknown_trigger_key_flow",
+            "unexpected_trigger_key" => true
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "unexpected_trigger_key"] and
+                 error.code == :unknown_key
+             end)
+    end
+
+    test "rejects keys not allowed for signal triggers" do
+      attrs = %{
+        "name" => "invalid_signal_trigger_keys_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "signal",
+            "patterns" => ["workflow.trigger.invalid_signal_trigger_keys_flow.requested"],
+            "command" => "/workflow:invalid_signal_trigger_keys_flow"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "command"] and error.code == :unknown_key
+             end)
+    end
+
+    test "requires patterns for signal triggers" do
+      attrs = %{
+        "name" => "missing_signal_patterns_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "signal"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "patterns"] and error.code == :required
+             end)
+    end
+
+    test "requires non-empty patterns for signal triggers" do
+      attrs = %{
+        "name" => "empty_signal_patterns_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "signal",
+            "patterns" => []
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "patterns"] and error.code == :required
+             end)
+    end
+
+    test "rejects blank entries in trigger patterns" do
+      attrs = %{
+        "name" => "blank_trigger_pattern_entries_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "signal",
+            "patterns" => ["", "workflow.trigger.requested"]
+          },
+          %{
+            "type" => "file_system",
+            "patterns" => [" ", "lib/**/*.ex"]
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "patterns", "0"] and error.code == :invalid_value
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "1", "patterns", "0"] and error.code == :invalid_value
+             end)
+    end
+
+    test "requires non-empty patterns for file_system triggers" do
+      attrs = %{
+        "name" => "empty_file_system_patterns_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "file_system",
+            "patterns" => []
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "patterns"] and error.code == :required
+             end)
+    end
+
+    test "requires schedule for scheduled triggers" do
+      attrs = %{
+        "name" => "missing_schedule_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "scheduled"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "schedule"] and error.code == :required
+             end)
+    end
+
+    test "requires non-empty schedule for scheduled triggers" do
+      attrs = %{
+        "name" => "empty_schedule_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "scheduled",
+            "schedule" => "   "
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "schedule"] and error.code == :required
+             end)
+    end
+
+    test "rejects whitespace-only command for manual triggers" do
+      attrs = %{
+        "name" => "manual_trigger_whitespace_command_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "manual",
+            "command" => "\t"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "command"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects unsupported file_system trigger events" do
+      attrs = %{
+        "name" => "invalid_file_system_trigger_events_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "file_system",
+            "patterns" => ["lib/**/*.ex"],
+            "events" => ["pre_commit"]
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "events", "0"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects unsupported git_hook trigger events" do
+      attrs = %{
+        "name" => "invalid_git_hook_trigger_events_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "git_hook",
+            "events" => ["pre_commit"]
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "events", "0"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects unknown step keys" do
+      attrs = %{
+        "name" => "unknown_step_key_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "JidoCode.Actions.ParseElixirFile",
+            "unexpected_step_key" => true
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "unexpected_step_key"] and error.code == :unknown_key
+             end)
+    end
+
+    test "rejects agent-only keys on action steps" do
+      attrs = %{
+        "name" => "invalid_action_step_keys_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "JidoCode.Actions.ParseElixirFile",
+            "mode" => "sync"
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "mode"] and error.code == :unknown_key
+             end)
+    end
+
+    test "rejects action-only keys on agent steps" do
+      attrs = %{
+        "name" => "invalid_agent_step_keys_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "ai_code_review",
+            "type" => "agent",
+            "agent" => "code_reviewer",
+            "module" => "JidoCode.Actions.ParseElixirFile"
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "module"] and error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown settings keys" do
+      attrs = %{
+        "name" => "unknown_settings_key_flow",
+        "version" => "1.0.0",
+        "settings" => %{
+          "max_concurrency" => 2,
+          "unexpected_settings_key" => true
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["settings", "unexpected_settings_key"] and
+                 error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown retry_policy keys" do
+      attrs = %{
+        "name" => "unknown_retry_policy_key_flow",
+        "version" => "1.0.0",
+        "settings" => %{
+          "retry_policy" => %{
+            "max_retries" => 1,
+            "unexpected_retry_policy_key" => true
+          }
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["settings", "retry_policy", "unexpected_retry_policy_key"] and
+                 error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown input and return keys" do
+      attrs = %{
+        "name" => "unknown_input_return_key_flow",
+        "version" => "1.0.0",
+        "inputs" => [
+          %{
+            "name" => "file_path",
+            "type" => "string",
+            "unexpected_input_key" => true
+          }
+        ],
+        "return" => %{
+          "value" => "file_path",
+          "unexpected_return_key" => true
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["inputs", "0", "unexpected_input_key"] and
+                 error.code == :unknown_key
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["return", "unexpected_return_key"] and error.code == :unknown_key
+             end)
+    end
+
+    test "rejects unknown error_handler keys" do
+      attrs = %{
+        "name" => "unknown_error_handler_key_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "compensate:parse_file",
+            "action" => "Jido.Code.Workflow.TestActions.ParseFile",
+            "unexpected_handler_key" => true
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "unexpected_handler_key"] and
+                 error.code == :unknown_key
+             end)
+    end
+
+    test "requires handler for error_handler entries" do
+      attrs = %{
+        "name" => "missing_error_handler_name_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "action" => "Jido.Code.Workflow.TestActions.ParseFile"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "handler"] and error.code == :required
+             end)
+    end
+
+    test "requires action for compensation handlers" do
+      attrs = %{
+        "name" => "missing_compensation_action_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "compensate:parse_file"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "action"] and error.code == :required
+             end)
+    end
+
+    test "requires non-empty action for compensation handlers" do
+      attrs = %{
+        "name" => "empty_compensation_action_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "compensate:parse_file",
+            "action" => " "
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "action"] and error.code == :required
+             end)
+    end
+
+    test "requires non-empty module, agent, and workflow for built-in step types" do
+      attrs = %{
+        "name" => "empty_step_targets_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{"name" => "parse", "type" => "action", "module" => " "},
+          %{"name" => "review", "type" => "agent", "agent" => ""},
+          %{"name" => "fix", "type" => "sub_workflow", "workflow" => "  "}
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "module"] and error.code == :required
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "1", "agent"] and error.code == :required
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "2", "workflow"] and error.code == :required
+             end)
+    end
+
+    test "validates inputs type for error_handler entries" do
+      attrs = %{
+        "name" => "invalid_error_handler_inputs_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "compensate:parse_file",
+            "action" => "Jido.Code.Workflow.TestActions.ParseFile",
+            "inputs" => "invalid"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "inputs"] and error.code == :invalid_type
+             end)
+    end
+
+    test "rejects input defaults that do not match declared input types" do
+      attrs = %{
+        "name" => "invalid_input_default_type_flow",
+        "version" => "1.0.0",
+        "inputs" => [
+          %{
+            "name" => "retry_count",
+            "type" => "integer",
+            "default" => "3"
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["inputs", "0", "default"] and error.code == :invalid_type
+             end)
+    end
+
+    test "rejects negative debounce_ms for file_system triggers" do
+      attrs = %{
+        "name" => "invalid_trigger_debounce_flow",
+        "version" => "1.0.0",
+        "triggers" => [
+          %{
+            "type" => "file_system",
+            "patterns" => ["lib/**/*.ex"],
+            "debounce_ms" => -1
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["triggers", "0", "debounce_ms"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects step timeout_ms below 1 and max_retries below 0" do
+      attrs = %{
+        "name" => "invalid_step_numeric_bounds_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "Jido.Code.Workflow.TestActions.ParseFile",
+            "timeout_ms" => 0,
+            "max_retries" => -1
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "timeout_ms"] and error.code == :invalid_value
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "max_retries"] and error.code == :invalid_value
+             end)
+    end
+
+    test "rejects negative retry policy base_delay_ms" do
+      attrs = %{
+        "name" => "invalid_retry_base_delay_flow",
+        "version" => "1.0.0",
+        "settings" => %{
+          "retry_policy" => %{
+            "max_retries" => 1,
+            "backoff" => "constant",
+            "base_delay_ms" => -10
+          }
+        },
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["settings", "retry_policy", "base_delay_ms"] and
+                 error.code == :invalid_value
+             end)
+    end
+  end
+end

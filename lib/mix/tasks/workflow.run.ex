@@ -21,9 +21,9 @@ defmodule Mix.Tasks.Workflow.Run do
 
   use Mix.Task
 
+  alias Jido.Code.Workflow.Broadcaster
   alias Jido.Signal
   alias Jido.Signal.Bus
-  alias JidoWorkflow.Workflow.Broadcaster
 
   @switches [
     inputs: :string,
