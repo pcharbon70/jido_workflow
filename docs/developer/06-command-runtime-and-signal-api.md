@@ -72,3 +72,15 @@ Bus.publish(bus, [
 ```
 
 No websocket or channel transport is required for command/control.
+
+## CLI Helper Task
+
+For terminal usage outside IEx, use:
+
+```bash
+mix workflow.signal workflow.run.start.requested \
+  --data '{"workflow_id":"my_flow","inputs":{"file_path":"lib/foo.ex"}}'
+```
+
+The task publishes the request signal and, by default, waits for the matching
+`*.accepted` or `*.rejected` response.
