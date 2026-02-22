@@ -1074,6 +1074,28 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "status")
   end
 
+  test "does not echo missing status in workflow.run.list.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.run.list.requested",
+                 %{"limit" => 0},
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.run.list.rejected",
+                      data: %{"limit" => 0, "reason" => reason} = payload
+                    }},
+                   5_000
+
+    refute Map.has_key?(payload, "status")
+    assert String.contains?(reason, "missing_or_invalid")
+    assert String.contains?(reason, "limit")
+  end
+
   test "does not use id fallback when workflow_id filter is explicitly provided", context do
     assert {:ok, _published} =
              Bus.publish(context.bus, [
