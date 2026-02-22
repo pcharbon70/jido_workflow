@@ -1231,6 +1231,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       limit when is_integer(limit) ->
         limit
 
+      limit when is_atom(limit) and not is_nil(limit) ->
+        Atom.to_string(limit)
+
       limit when is_binary(limit) ->
         normalize_optional_binary(limit)
 
