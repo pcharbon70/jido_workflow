@@ -1063,7 +1063,7 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
   defp list_rejected_payload(data, reason) do
     %{"reason" => format_reason(reason)}
     |> maybe_put("workflow_id", fetch_list_requested_workflow_id(data))
-    |> maybe_put("status", fetch_normalized_binary(data, "status"))
+    |> maybe_put("status", fetch_requested_status_filter(data))
     |> maybe_put("limit", fetch_normalized_limit_filter(data))
   end
 
@@ -1246,6 +1246,19 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
 
       value when is_binary(value) ->
         normalize_optional_binary(value)
+
+      _other ->
+        nil
+    end
+  end
+
+  defp fetch_requested_status_filter(data) do
+    case fetch(data, "status") do
+      status when is_atom(status) ->
+        Atom.to_string(status)
+
+      status when is_binary(status) ->
+        normalize_optional_binary(status)
 
       _other ->
         nil
