@@ -186,7 +186,8 @@ defmodule Mix.Tasks.Workflow.Signal do
     with {:ok, subscription_id} <- Bus.subscribe(bus, pattern, dispatch: {:pid, target: self()}) do
       try do
         with {:ok, _published} <- Bus.publish(bus, [request_signal]),
-             {:ok, response_signal} <- await_response(accepted, rejected, timeout_ms) do
+             {:ok, response_signal} <-
+               await_response(accepted, rejected, request_signal, timeout_ms) do
           {:ok,
            %{
              "status" => "accepted",
@@ -210,12 +211,12 @@ defmodule Mix.Tasks.Workflow.Signal do
     }
   end
 
-  defp await_response(accepted, rejected, timeout_ms) do
+  defp await_response(accepted, rejected, request_signal, timeout_ms) do
     started_at = System.monotonic_time(:millisecond)
-    do_await_response(accepted, rejected, timeout_ms, started_at)
+    do_await_response(accepted, rejected, request_signal, timeout_ms, started_at)
   end
 
-  defp do_await_response(accepted, rejected, timeout_ms, started_at) do
+  defp do_await_response(accepted, rejected, request_signal, timeout_ms, started_at) do
     elapsed = System.monotonic_time(:millisecond) - started_at
     remaining = timeout_ms - elapsed
 
@@ -224,18 +225,47 @@ defmodule Mix.Tasks.Workflow.Signal do
     else
       receive do
         {:signal, %Signal{type: ^accepted} = signal} ->
-          {:ok, signal}
+          if response_matches_request?(signal, request_signal) do
+            {:ok, signal}
+          else
+            do_await_response(accepted, rejected, request_signal, timeout_ms, started_at)
+          end
 
         {:signal, %Signal{type: ^rejected} = signal} ->
-          {:error, {:rejected, signal}}
+          if response_matches_request?(signal, request_signal) do
+            {:error, {:rejected, signal}}
+          else
+            do_await_response(accepted, rejected, request_signal, timeout_ms, started_at)
+          end
 
         {:signal, %Signal{}} ->
-          do_await_response(accepted, rejected, timeout_ms, started_at)
+          do_await_response(accepted, rejected, request_signal, timeout_ms, started_at)
       after
         remaining ->
           {:error, :timeout}
       end
     end
+  end
+
+  # Require explicit correlation to avoid consuming unrelated command responses.
+  defp response_matches_request?(%Signal{} = response, %Signal{} = request) do
+    fetch(response.data, "requested_signal_id") == request.id
+  end
+
+  defp fetch(data, key) when is_map(data) do
+    Map.get(data, key) || fetch_atom_key(data, key)
+  end
+
+  defp fetch(_data, _key), do: nil
+
+  defp fetch_atom_key(map, key) do
+    Enum.find_value(map, fn
+      {map_key, map_value} when is_atom(map_key) ->
+        if Atom.to_string(map_key) == key, do: map_value
+
+      _other ->
+        nil
+    end)
   end
 
   defp serialize_signal(%Signal{} = signal) do

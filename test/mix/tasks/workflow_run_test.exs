@@ -36,6 +36,7 @@ defmodule Mix.Tasks.Workflow.RunTest do
   alias Jido.Code.Workflow.RunStore
   alias Jido.Code.Workflow.TriggerRuntime
   alias Jido.Code.Workflow.TriggerSupervisor
+  alias Jido.Signal
   alias Jido.Signal.Bus
   alias Mix.Tasks.Workflow.Run
 
@@ -180,6 +181,41 @@ defmodule Mix.Tasks.Workflow.RunTest do
     end
   end
 
+  test "ignores unrelated start accepted responses and matches by requested_signal_id" do
+    isolated_bus = unique_name("mix_task_run_isolated_bus")
+    start_supervised!({Bus, name: isolated_bus})
+    start_run_start_responder(isolated_bus)
+    assert_receive :run_start_responder_ready, 1_000
+
+    output =
+      capture_io(fn ->
+        Run.run([
+          "correlation_flow",
+          "--no-start-app",
+          "--no-pretty",
+          "--no-await-completion",
+          "--bus",
+          Atom.to_string(isolated_bus),
+          "--source",
+          "/test/workflow.run/correlation",
+          "--timeout",
+          "1000",
+          "--inputs",
+          ~s({"value":"hello"})
+        ])
+      end)
+
+    payload = Jason.decode!(output)
+    request_id = get_in(payload, ["request", "id"])
+
+    assert payload["status"] == "accepted"
+    assert payload["workflow_id"] == "correlation_flow"
+    assert payload["run_id"] == "run_correlated"
+    assert get_in(payload, ["start_response", "type"]) == "workflow.run.start.accepted"
+    assert get_in(payload, ["start_response", "data", "requested_signal_id"]) == request_id
+    assert_receive :run_start_responder_done, 2_000
+  end
+
   defp eventually_completed?(run_store, run_id, timeout_ms) do
     started_at = now_ms()
     do_eventually_completed?(run_store, run_id, timeout_ms, started_at)
@@ -257,6 +293,53 @@ defmodule Mix.Tasks.Workflow.RunTest do
 
   defp unique_name(prefix) do
     :"#{prefix}_#{System.unique_integer([:positive])}"
+  end
+
+  defp start_run_start_responder(bus) do
+    parent = self()
+
+    spawn(fn ->
+      assert {:ok, _subscription_id} =
+               Bus.subscribe(bus, "workflow.run.start.requested",
+                 dispatch: {:pid, target: self()}
+               )
+
+      send(parent, :run_start_responder_ready)
+
+      receive do
+        {:signal, %Signal{} = request_signal} ->
+          workflow_id = get_in(request_signal.data, ["workflow_id"]) || "unknown_flow"
+
+          # Publish noise first; the task should ignore this uncorrelated response.
+          assert {:ok, _published} =
+                   Bus.publish(bus, [
+                     Signal.new!(
+                       "workflow.run.start.accepted",
+                       %{"workflow_id" => workflow_id, "run_id" => "run_noise"},
+                       source: "/test/workflow.run/noise"
+                     )
+                   ])
+
+          Process.sleep(25)
+
+          assert {:ok, _published} =
+                   Bus.publish(bus, [
+                     Signal.new!(
+                       "workflow.run.start.accepted",
+                       %{
+                         "workflow_id" => workflow_id,
+                         "run_id" => "run_correlated",
+                         "requested_signal_id" => request_signal.id,
+                         "requested_signal_type" => request_signal.type,
+                         "requested_signal_source" => request_signal.source
+                       },
+                       source: "/test/workflow.run/responder"
+                     )
+                   ])
+
+          send(parent, :run_start_responder_done)
+      end
+    end)
   end
 
   defp now_ms, do: System.monotonic_time(:millisecond)
