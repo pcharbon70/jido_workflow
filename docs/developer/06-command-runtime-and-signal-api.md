@@ -94,3 +94,16 @@ mix workflow.run my_flow --inputs '{"value":"hello"}'
 
 `mix workflow.run` starts `workflow.run.start.requested` and can optionally wait
 for terminal lifecycle completion (`workflow.run.completed|failed|cancelled`).
+
+For run control operations from terminal, use:
+
+```bash
+mix workflow.control pause <run_id>
+mix workflow.control resume <run_id>
+mix workflow.control cancel <run_id> --reason "user_requested"
+mix workflow.control step <run_id>
+mix workflow.control mode <run_id> --mode step
+mix workflow.control get <run_id>
+mix workflow.control list --workflow-id my_flow --status running --limit 20
+mix workflow.control runtime-status
+```
