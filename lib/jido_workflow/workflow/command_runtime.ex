@@ -1244,6 +1244,9 @@ defmodule JidoWorkflow.Workflow.CommandRuntime do
       value when is_boolean(value) ->
         value
 
+      value when is_atom(value) and not is_nil(value) ->
+        Atom.to_string(value)
+
       value when is_binary(value) ->
         normalize_optional_binary(value)
 

@@ -1534,6 +1534,36 @@ defmodule JidoWorkflow.Workflow.CommandRuntimeTest do
     assert String.contains?(reason, "include_disabled")
   end
 
+  test "echoes atom boolean filters in workflow.definition.list.rejected payloads", context do
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!(
+                 "workflow.definition.list.requested",
+                 %{
+                   "include_disabled" => :maybe,
+                   "include_invalid" => :enabled,
+                   "limit" => 2
+                 },
+                 source: "/test/client"
+               )
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.definition.list.rejected",
+                      data: %{
+                        "include_disabled" => "maybe",
+                        "include_invalid" => "enabled",
+                        "limit" => 2,
+                        "reason" => reason
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "missing_or_invalid")
+    assert String.contains?(reason, "include_disabled")
+  end
+
   test "echoes normalized filters when definition list requests fail after parsing", context do
     missing_registry = unique_name("command_runtime_missing_workflow_registry")
 
