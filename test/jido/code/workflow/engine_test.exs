@@ -415,7 +415,7 @@ defmodule Jido.Code.Workflow.EngineTest do
     assert_receive {:signal,
                     %Signal{
                       type: "workflow.step.started",
-                      source: "/jido_workflow/workflow/workflow%3Aengine_example",
+                      source: "/jido/code/workflow/workflow%3Aengine_example",
                       data: %{
                         "run_id" => run_id,
                         "step" => %{"name" => "parse_file", "type" => "action"}
@@ -425,7 +425,7 @@ defmodule Jido.Code.Workflow.EngineTest do
     assert_receive {:signal,
                     %Signal{
                       type: "workflow.step.completed",
-                      source: "/jido_workflow/workflow/workflow%3Aengine_example",
+                      source: "/jido/code/workflow/workflow%3Aengine_example",
                       data: %{
                         "run_id" => ^run_id,
                         "status" => "completed",

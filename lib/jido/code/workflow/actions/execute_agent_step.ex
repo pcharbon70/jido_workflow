@@ -373,7 +373,7 @@ defmodule Jido.Code.Workflow.Actions.ExecuteAgentStep do
         source <> "/step/" <> step_name <> "/callback"
 
       _ ->
-        "/jido_workflow/workflow/step/#{step_name}/callback"
+        "/jido/code/workflow/step/#{step_name}/callback"
     end
   end
 

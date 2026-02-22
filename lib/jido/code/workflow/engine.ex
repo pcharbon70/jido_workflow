@@ -560,7 +560,7 @@ defmodule Jido.Code.Workflow.Engine do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp runtime_source(workflow_id, suffix) do
-    "/jido_workflow/workflow/#{workflow_id}/#{suffix}"
+    "/jido/code/workflow/#{workflow_id}/#{suffix}"
   end
 
   defp compiled_settings(compiled) when is_map(compiled) do
@@ -612,7 +612,7 @@ defmodule Jido.Code.Workflow.Engine do
   defp signal_source(signal_policy) when is_map(signal_policy) do
     case Map.get(signal_policy, :topic) || Map.get(signal_policy, "topic") do
       topic when is_binary(topic) and topic != "" ->
-        "/jido_workflow/workflow/" <> URI.encode_www_form(topic)
+        "/jido/code/workflow/" <> URI.encode_www_form(topic)
 
       _ ->
         nil
