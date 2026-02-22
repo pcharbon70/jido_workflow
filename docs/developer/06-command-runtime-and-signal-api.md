@@ -107,3 +107,12 @@ mix workflow.control get <run_id>
 mix workflow.control list --workflow-id my_flow --status running --limit 20
 mix workflow.control runtime-status
 ```
+
+For manual slash-command trigger operations from terminal, use:
+
+```bash
+mix workflow.command /workflow:review --workflow-id code_review --params '{"value":"hello"}'
+```
+
+This wrapper publishes `workflow.trigger.manual.requested` with the command,
+optional workflow disambiguation, and optional params payload.
