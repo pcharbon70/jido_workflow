@@ -13,7 +13,7 @@ defmodule Jido.Code.Workflow.CompilerTest do
   alias Jido.Runic.ActionNode
   alias Runic.Workflow
 
-  @fixture "/Users/Pascal/code/jido/jido_workflow/test/support/fixtures/workflows/code_review_pipeline.md"
+  @fixture Path.expand("../../../support/fixtures/workflows/code_review_pipeline.md", __DIR__)
 
   test "compile/1 builds a Runic workflow bundle from a validated definition" do
     assert {:ok, definition} = Loader.load_file(@fixture)

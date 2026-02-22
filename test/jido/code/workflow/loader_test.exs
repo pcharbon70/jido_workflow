@@ -4,7 +4,7 @@ defmodule Jido.Code.Workflow.LoaderTest do
   alias Jido.Code.Workflow.Definition
   alias Jido.Code.Workflow.Loader
 
-  @fixture "/Users/Pascal/code/jido/jido_workflow/test/support/fixtures/workflows/code_review_pipeline.md"
+  @fixture Path.expand("../../../support/fixtures/workflows/code_review_pipeline.md", __DIR__)
 
   test "load_file/1 parses and validates into a typed definition" do
     assert {:ok, %Definition{} = definition} = Loader.load_file(@fixture)
