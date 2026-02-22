@@ -19,6 +19,17 @@ Primary signal types:
 
 These signals are emitted on `Jido.Signal.Bus` and should be treated as the observability contract.
 
+## Terminal Signal Watching
+
+For terminal-based runtime observation, use:
+
+```bash
+mix workflow.watch --pattern workflow.run.* --pattern workflow.step.*
+```
+
+`mix workflow.watch` streams matching bus signals as JSON lines and can be bounded
+with `--limit` and/or `--timeout`.
+
 ## Hook Runtime
 
 `JidoWorkflow.Workflow.HookRuntime` subscribes to selected lifecycle signals and forwards them into hook callbacks through `HooksIntegration`.
