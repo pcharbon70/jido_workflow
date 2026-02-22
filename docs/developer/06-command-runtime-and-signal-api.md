@@ -61,7 +61,8 @@ alias Jido.Signal.Bus
 
 bus = :jido_workflow_bus
 
-{:ok, _sub} = Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+{:ok, _run_sub} = Bus.subscribe(bus, "workflow.run.*", dispatch: {:pid, target: self()})
+{:ok, _start_sub} = Bus.subscribe(bus, "workflow.run.start.*", dispatch: {:pid, target: self()})
 
 Bus.publish(bus, [
   Signal.new!("workflow.run.start.requested", %{
@@ -84,3 +85,12 @@ mix workflow.signal workflow.run.start.requested \
 
 The task publishes the request signal and, by default, waits for the matching
 `*.accepted` or `*.rejected` response.
+
+For a higher-level run convenience wrapper, use:
+
+```bash
+mix workflow.run my_flow --inputs '{"value":"hello"}'
+```
+
+`mix workflow.run` starts `workflow.run.start.requested` and can optionally wait
+for terminal lifecycle completion (`workflow.run.completed|failed|cancelled`).
