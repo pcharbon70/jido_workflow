@@ -67,8 +67,8 @@ Use these for targeted operations:
 For terminal control workflows without writing raw JSON payloads, use:
 
 ```bash
-jido --workflow my_flow -value hello
-jido --workflow my_flow -backend strategy -await-completion false -timeout 30000 -value hello
+workflow my_flow -value hello
+workflow my_flow -backend strategy -await-completion false -timeout 30000 -value hello
 ```
 
 Pair values are JSON-decoded when possible, so `-count 3`, `-enabled true`,

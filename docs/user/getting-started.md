@@ -141,8 +141,8 @@ The trigger runtime will start a workflow run when the pattern matches.
 Outside `iex`, you can start runs with the project CLI:
 
 ```bash
-jido --workflow sample_flow -value hello
+workflow sample_flow -value hello
 ```
 
-The first argument after `--workflow` is the workflow id. Remaining pairs are
+The first argument is the workflow id. Remaining pairs are
 mapped into workflow inputs (JSON-decoded when possible).

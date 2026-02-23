@@ -56,7 +56,7 @@ defmodule Jido.Code.Workflow.MixProject do
   defp escript do
     [
       main_module: Jido.Code.Workflow.CLI,
-      name: "jido",
+      name: "workflow",
       app: nil
     ]
   end
