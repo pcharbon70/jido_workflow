@@ -49,8 +49,11 @@ Triggers:
 
 - bus + runtime process references
 - tracked in-flight `run_tasks`
+- `workflow_registry_summary` (`total_workflows`, `enabled_workflows`, `disabled_workflows`, `valid_workflows`, `invalid_workflows`)
 - `run_store_summary` (`total_runs` + `by_status`)
+- `trigger_runtime_status` (active trigger ids/counts and last sync snapshot)
 - `hook_runtime_status` (adapter/runtime subscription health)
+- component error fields (`workflow_registry_error`, `run_store_error`, `trigger_runtime_error`, `hook_runtime_error`)
 
 ## Start Request Shape
 

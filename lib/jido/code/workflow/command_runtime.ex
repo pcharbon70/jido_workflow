@@ -1379,19 +1379,29 @@ defmodule Jido.Code.Workflow.CommandRuntime do
   end
 
   defp status_payload(state) do
+    {workflow_registry_summary, workflow_registry_error} =
+      workflow_registry_summary(state.workflow_registry)
+
     {run_store_summary, run_store_error} = run_store_summary(state.run_store)
     {hook_runtime_status, hook_runtime_error} = hook_runtime_status(state.hook_runtime)
+
+    {trigger_runtime_status, trigger_runtime_error} =
+      trigger_runtime_status_snapshot(state.trigger_runtime)
 
     %{
       bus: state.bus,
       backend: state.backend,
       workflow_registry: state.workflow_registry,
+      workflow_registry_summary: workflow_registry_summary,
+      workflow_registry_error: workflow_registry_error,
       run_store: state.run_store,
       run_store_summary: run_store_summary,
       run_store_error: run_store_error,
       trigger_supervisor: state.trigger_supervisor,
       trigger_process_registry: state.trigger_process_registry,
       trigger_runtime: state.trigger_runtime,
+      trigger_runtime_status: trigger_runtime_status,
+      trigger_runtime_error: trigger_runtime_error,
       hook_runtime: state.hook_runtime,
       hook_runtime_status: hook_runtime_status,
       hook_runtime_error: hook_runtime_error,
@@ -1407,6 +1417,31 @@ defmodule Jido.Code.Workflow.CommandRuntime do
            }}
         end)
     }
+  end
+
+  defp workflow_registry_summary(workflow_registry) do
+    entries =
+      WorkflowRegistry.list(
+        workflow_registry,
+        include_disabled: true,
+        include_invalid: true
+      )
+
+    total_workflows = length(entries)
+    enabled_workflows = Enum.count(entries, &Map.get(&1, :enabled, false))
+    invalid_workflows = Enum.count(entries, &(Map.get(&1, :valid?, false) == false))
+
+    summary = %{
+      total_workflows: total_workflows,
+      enabled_workflows: enabled_workflows,
+      disabled_workflows: total_workflows - enabled_workflows,
+      valid_workflows: total_workflows - invalid_workflows,
+      invalid_workflows: invalid_workflows
+    }
+
+    {summary, nil}
+  catch
+    :exit, reason -> {nil, format_reason({:workflow_registry_unavailable, reason})}
   end
 
   defp run_store_summary(run_store) do
@@ -1427,6 +1462,12 @@ defmodule Jido.Code.Workflow.CommandRuntime do
     {HookRuntime.status(hook_runtime), nil}
   catch
     :exit, reason -> {nil, format_reason({:hook_runtime_unavailable, reason})}
+  end
+
+  defp trigger_runtime_status_snapshot(trigger_runtime) do
+    {TriggerRuntime.status(trigger_runtime), nil}
+  catch
+    :exit, reason -> {nil, format_reason({:trigger_runtime_unavailable, reason})}
   end
 
   defp maybe_pause_strategy_runtime(state, run_id) do

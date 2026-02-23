@@ -31,8 +31,11 @@ For command responses emitted by CommandRuntime:
 
 - `subscription_count`
 - `run_tasks`
+- `workflow_registry_summary` (`total_workflows`, `enabled_workflows`, `disabled_workflows`, `valid_workflows`, `invalid_workflows`)
 - `run_store_summary` (`total_runs`, `by_status`)
+- `trigger_runtime_status` (`trigger_ids`, `trigger_counts`, and last sync snapshot fields when available)
 - `hook_runtime_status` (when hook runtime is available)
+- per-component error fields: `workflow_registry_error`, `run_store_error`, `trigger_runtime_error`, `hook_runtime_error`
 
 ## Definition and Registry Commands
 
