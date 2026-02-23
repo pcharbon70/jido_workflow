@@ -12,6 +12,7 @@ The runtime is signal-native and centered on:
 ## Guide Index
 
 - [Getting Started](./getting-started.md)
+- [CLI Command Guide](./cli-commands.md)
 - [Workflow Definition Guide](./workflow-definition.md)
 - [Trigger Guide](./triggers.md)
 - [Command Signal Reference](./command-signals.md)
