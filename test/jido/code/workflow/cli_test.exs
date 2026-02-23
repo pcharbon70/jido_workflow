@@ -20,6 +20,35 @@ defmodule Jido.Code.Workflow.CLITest do
            }
   end
 
+  test "decodes JSON literals for non-reserved input option values" do
+    assert {:ok, "workflow.run", ["code_review", "--inputs", encoded_inputs]} =
+             CLI.resolve([
+               "--workflow",
+               "code_review",
+               "-attempts",
+               "3",
+               "-dry-run",
+               "true",
+               "-score",
+               "9.5",
+               "-metadata",
+               ~s({"severity":"high"}),
+               "-files",
+               ~s(["lib/a.ex","lib/b.ex"]),
+               "-note",
+               "plain_text"
+             ])
+
+    assert Jason.decode!(encoded_inputs) == %{
+             "attempts" => 3,
+             "dry_run" => true,
+             "score" => 9.5,
+             "metadata" => %{"severity" => "high"},
+             "files" => ["lib/a.ex", "lib/b.ex"],
+             "note" => "plain_text"
+           }
+  end
+
   test "routes reserved run options while keeping non-reserved options as inputs" do
     assert {:ok, "workflow.run",
             [

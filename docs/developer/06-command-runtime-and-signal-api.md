@@ -105,6 +105,9 @@ except reserved run options that are forwarded directly to `mix workflow.run`:
 - `await_completion`
 - `pretty`
 
+Non-reserved input values are JSON-decoded when possible (booleans, numbers,
+objects, arrays, `null`); values that do not decode are passed as strings.
+
 For terminal usage outside IEx, use:
 
 ```bash
