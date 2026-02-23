@@ -44,6 +44,7 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
   use ExUnit.Case, async: true
 
   alias Jido.Code.Workflow.CommandRuntime
+  alias Jido.Code.Workflow.HookRuntime
   alias Jido.Code.Workflow.Registry, as: WorkflowRegistry
   alias Jido.Code.Workflow.RunStore
   alias Jido.Code.Workflow.TriggerRuntime
@@ -91,6 +92,9 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
          sync_on_start: false}
       )
 
+    hook_runtime = unique_name("command_runtime_hook_runtime")
+    hook_runtime_pid = start_supervised!({HookRuntime, name: hook_runtime, bus: bus})
+
     command_runtime = unique_name("command_runtime")
 
     runtime_pid =
@@ -102,7 +106,8 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
          run_store: run_store,
          trigger_supervisor: trigger_supervisor,
          trigger_process_registry: trigger_process_registry,
-         trigger_runtime: trigger_runtime_pid}
+         trigger_runtime: trigger_runtime_pid,
+         hook_runtime: hook_runtime_pid}
       )
 
     for pattern <- [
@@ -138,6 +143,7 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
      trigger_supervisor: trigger_supervisor,
      trigger_process_registry: trigger_process_registry,
      trigger_runtime: trigger_runtime_pid,
+     hook_runtime: hook_runtime_pid,
      command_runtime: runtime_pid}
   end
 
@@ -1152,6 +1158,13 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                       data: %{
                         "status" => %{
                           "subscription_count" => subscription_count,
+                          "run_store_summary" => %{
+                            "total_runs" => 0,
+                            "by_status" => %{}
+                          },
+                          "hook_runtime_status" => %{
+                            "subscription_count" => hook_subscription_count
+                          },
                           "run_tasks" => %{}
                         }
                       }
@@ -1159,6 +1172,7 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                    5_000
 
     assert subscription_count >= 17
+    assert hook_subscription_count >= 7
   end
 
   test "handles workflow.run.step.requested for active strategy runs", context do

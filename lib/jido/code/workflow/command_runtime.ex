@@ -27,6 +27,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
 
   alias Jido.Code.Workflow.Broadcaster
   alias Jido.Code.Workflow.Engine
+  alias Jido.Code.Workflow.HookRuntime
   alias Jido.Code.Workflow.Registry, as: WorkflowRegistry
   alias Jido.Code.Workflow.RunStore
   alias Jido.Code.Workflow.TriggerRuntime
@@ -103,6 +104,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
           trigger_supervisor: GenServer.server(),
           trigger_process_registry: atom(),
           trigger_runtime: GenServer.server(),
+          hook_runtime: GenServer.server(),
           backend: Engine.backend() | nil,
           subscription_ids: [String.t()],
           run_tasks: %{String.t() => run_task()},
@@ -131,6 +133,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
       Keyword.get(opts, :trigger_process_registry, default_trigger_process_registry())
 
     trigger_runtime = Keyword.get(opts, :trigger_runtime, default_trigger_runtime())
+    hook_runtime = Keyword.get(opts, :hook_runtime, default_hook_runtime())
 
     backend = normalize_backend(Keyword.get(opts, :backend))
 
@@ -144,6 +147,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
            trigger_supervisor: trigger_supervisor,
            trigger_process_registry: trigger_process_registry,
            trigger_runtime: trigger_runtime,
+           hook_runtime: hook_runtime,
            backend: backend,
            subscription_ids: subscription_ids,
            run_tasks: %{},
@@ -1375,13 +1379,22 @@ defmodule Jido.Code.Workflow.CommandRuntime do
   end
 
   defp status_payload(state) do
+    {run_store_summary, run_store_error} = run_store_summary(state.run_store)
+    {hook_runtime_status, hook_runtime_error} = hook_runtime_status(state.hook_runtime)
+
     %{
       bus: state.bus,
       backend: state.backend,
       workflow_registry: state.workflow_registry,
+      run_store: state.run_store,
+      run_store_summary: run_store_summary,
+      run_store_error: run_store_error,
       trigger_supervisor: state.trigger_supervisor,
       trigger_process_registry: state.trigger_process_registry,
       trigger_runtime: state.trigger_runtime,
+      hook_runtime: state.hook_runtime,
+      hook_runtime_status: hook_runtime_status,
+      hook_runtime_error: hook_runtime_error,
       subscription_count: length(state.subscription_ids),
       run_tasks:
         Enum.into(state.run_tasks, %{}, fn {run_id, run_task} ->
@@ -1394,6 +1407,26 @@ defmodule Jido.Code.Workflow.CommandRuntime do
            }}
         end)
     }
+  end
+
+  defp run_store_summary(run_store) do
+    runs = RunStore.list(run_store)
+
+    by_status =
+      Enum.reduce(runs, %{}, fn run, counts ->
+        status = run.status |> to_string()
+        Map.update(counts, status, 1, &(&1 + 1))
+      end)
+
+    {%{total_runs: length(runs), by_status: by_status}, nil}
+  catch
+    :exit, reason -> {nil, format_reason({:run_store_unavailable, reason})}
+  end
+
+  defp hook_runtime_status(hook_runtime) do
+    {HookRuntime.status(hook_runtime), nil}
+  catch
+    :exit, reason -> {nil, format_reason({:hook_runtime_unavailable, reason})}
   end
 
   defp maybe_pause_strategy_runtime(state, run_id) do
@@ -1860,6 +1893,10 @@ defmodule Jido.Code.Workflow.CommandRuntime do
 
   defp default_trigger_runtime do
     Application.get_env(:jido_workflow, :trigger_runtime, TriggerRuntime)
+  end
+
+  defp default_hook_runtime do
+    Application.get_env(:jido_workflow, :hook_runtime, HookRuntime)
   end
 
   defp default_run_store do

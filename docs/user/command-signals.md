@@ -27,6 +27,13 @@ For command responses emitted by CommandRuntime:
 | `workflow.run.list.requested` | - | `workflow_id` (or `id`), `status`, `limit` | `workflow.run.list.accepted` | `workflow.run.list.rejected` |
 | `workflow.runtime.status.requested` | - | - | `workflow.runtime.status.accepted` | - |
 
+`workflow.runtime.status.accepted` includes command-runtime health details, including:
+
+- `subscription_count`
+- `run_tasks`
+- `run_store_summary` (`total_runs`, `by_status`)
+- `hook_runtime_status` (when hook runtime is available)
+
 ## Definition and Registry Commands
 
 | Request Signal | Required Fields | Optional Fields | Success Signal | Failure Signal |
