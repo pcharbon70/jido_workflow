@@ -57,6 +57,11 @@ mix do escript.build + escript.install
 If needed, add `~/.mix/escripts` to your `PATH` so `jido` is available everywhere.
 Set `JIDO_WORKFLOW_TZDATA_DIR` if you want a custom timezone data directory.
 
+## Documentation
+
+- Developer guides: `docs/developer/README.md`
+- User guides: `docs/user/README.md`
+
 ## Git Hooks
 
 Install repository-managed hooks:
