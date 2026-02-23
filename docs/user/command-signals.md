@@ -32,6 +32,7 @@ For command responses emitted by CommandRuntime:
 - `subscription_count`
 - `run_tasks`
 - `run_store_summary` (`total_runs`, `by_status`)
+- `trigger_runtime_status` (trigger ids, counts, last sync/error snapshot)
 - `hook_runtime_status` (when hook runtime is available)
 
 ## Definition and Registry Commands

@@ -1382,6 +1382,9 @@ defmodule Jido.Code.Workflow.CommandRuntime do
     {run_store_summary, run_store_error} = run_store_summary(state.run_store)
     {hook_runtime_status, hook_runtime_error} = hook_runtime_status(state.hook_runtime)
 
+    {trigger_runtime_status, trigger_runtime_error} =
+      trigger_runtime_status_snapshot(state.trigger_runtime)
+
     %{
       bus: state.bus,
       backend: state.backend,
@@ -1392,6 +1395,8 @@ defmodule Jido.Code.Workflow.CommandRuntime do
       trigger_supervisor: state.trigger_supervisor,
       trigger_process_registry: state.trigger_process_registry,
       trigger_runtime: state.trigger_runtime,
+      trigger_runtime_status: trigger_runtime_status,
+      trigger_runtime_error: trigger_runtime_error,
       hook_runtime: state.hook_runtime,
       hook_runtime_status: hook_runtime_status,
       hook_runtime_error: hook_runtime_error,
@@ -1427,6 +1432,12 @@ defmodule Jido.Code.Workflow.CommandRuntime do
     {HookRuntime.status(hook_runtime), nil}
   catch
     :exit, reason -> {nil, format_reason({:hook_runtime_unavailable, reason})}
+  end
+
+  defp trigger_runtime_status_snapshot(trigger_runtime) do
+    {TriggerRuntime.status(trigger_runtime), nil}
+  catch
+    :exit, reason -> {nil, format_reason({:trigger_runtime_unavailable, reason})}
   end
 
   defp maybe_pause_strategy_runtime(state, run_id) do

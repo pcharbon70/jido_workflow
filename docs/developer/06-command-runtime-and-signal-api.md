@@ -50,6 +50,7 @@ Triggers:
 - bus + runtime process references
 - tracked in-flight `run_tasks`
 - `run_store_summary` (`total_runs` + `by_status`)
+- `trigger_runtime_status` (active trigger ids/counts and last sync snapshot)
 - `hook_runtime_status` (adapter/runtime subscription health)
 
 ## Start Request Shape

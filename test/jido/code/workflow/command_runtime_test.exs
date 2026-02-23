@@ -1165,6 +1165,11 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                           "hook_runtime_status" => %{
                             "subscription_count" => hook_subscription_count
                           },
+                          "trigger_runtime_status" => %{
+                            "trigger_ids" => [],
+                            "trigger_counts" => %{}
+                          },
+                          "trigger_runtime_error" => nil,
                           "run_tasks" => %{}
                         }
                       }
@@ -1173,6 +1178,36 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
 
     assert subscription_count >= 17
     assert hook_subscription_count >= 7
+  end
+
+  test "runtime status includes trigger runtime errors when trigger runtime is unavailable",
+       context do
+    missing_trigger_runtime = unique_name("command_runtime_missing_trigger_runtime")
+
+    _ =
+      :sys.replace_state(
+        context.command_runtime,
+        &Map.put(&1, :trigger_runtime, missing_trigger_runtime)
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "trigger_runtime_status" => nil,
+                          "trigger_runtime_error" => reason
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "trigger_runtime_unavailable")
   end
 
   test "handles workflow.run.step.requested for active strategy runs", context do
