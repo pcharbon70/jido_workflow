@@ -29,11 +29,21 @@ Then run commands directly:
 ```bash
 ./jido --workflow code_review -file_path lib/example.ex -mode full
 ./jido --workflow release_validation -target_branch main -commit_sha abc123
+./jido --workflow code_review -backend strategy -await-completion false -timeout 45000 -file_path lib/example.ex
 ```
 
 `jido --workflow` always routes to `mix workflow.run`.
 All trailing options must be `-option-name option-value` pairs, and they are
-encoded into the run `inputs` map.
+encoded into the run `inputs` map, except these reserved run options:
+
+- `-run-id`
+- `-backend` (`direct` or `strategy`)
+- `-source`
+- `-bus`
+- `-timeout` (positive integer milliseconds)
+- `-start-app` (`true|false` or `1|0`)
+- `-await-completion` (`true|false` or `1|0`)
+- `-pretty` (`true|false` or `1|0`)
 
 Install globally (optional):
 
