@@ -62,6 +62,12 @@ Use command signals:
 - `workflow.trigger.sync.requested`: sync trigger processes only
 - `workflow.trigger.runtime.status.requested`: inspect trigger runtime status
 
+Runtime status responses include:
+
+- `trigger_ids`
+- `triggers` (detailed per-trigger runtime snapshots)
+- `trigger_counts` grouped by trigger type
+
 ## Trigger Payloads Injected into Workflow Inputs
 
 Every trigger enriches workflow inputs with trigger metadata.

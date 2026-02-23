@@ -18,6 +18,7 @@ defmodule Jido.Code.Workflow.Triggers.FileSystem do
   @default_process_registry Jido.Code.Workflow.TriggerProcessRegistry
 
   @type state :: %{
+          type: String.t(),
           id: String.t(),
           workflow_id: String.t(),
           root_dir: String.t(),
@@ -64,6 +65,7 @@ defmodule Jido.Code.Workflow.Triggers.FileSystem do
          {:ok, watcher_pid} <- start_watcher(watch_dirs) do
       {:ok,
        %{
+         type: "file_system",
          id: id,
          workflow_id: workflow_id,
          root_dir: root_dir,

@@ -71,6 +71,26 @@ defmodule Jido.Code.Workflow.TriggerSupervisor do
     |> Enum.sort()
   end
 
+  @spec list_trigger_statuses(keyword()) :: [map()]
+  def list_trigger_statuses(opts \\ []) do
+    process_registry = process_registry(opts)
+
+    list_trigger_ids(process_registry: process_registry)
+    |> Enum.map(fn trigger_id ->
+      case Registry.lookup(process_registry, trigger_id) do
+        [{pid, registry_value}] ->
+          build_trigger_status(trigger_id, pid, registry_value)
+
+        [] ->
+          %{
+            id: trigger_id,
+            alive?: false,
+            reason: :not_found
+          }
+      end
+    end)
+  end
+
   @spec trigger_manual(trigger_id(), map(), keyword()) ::
           {:ok, Jido.Code.Workflow.Engine.execution_result()} | {:error, term()}
   def trigger_manual(trigger_id, params \\ %{}, opts \\ [])
@@ -124,6 +144,89 @@ defmodule Jido.Code.Workflow.TriggerSupervisor do
       Application.get_env(:jido_workflow, :trigger_process_registry, @default_process_registry)
     end)
   end
+
+  defp build_trigger_status(trigger_id, pid, registry_value) do
+    case safe_get_state(pid) do
+      {:ok, state} ->
+        state_map = normalize_state_map(state)
+
+        status =
+          %{
+            id: trigger_id,
+            pid: pid,
+            alive?: Process.alive?(pid),
+            trigger_type: trigger_type(state_map, registry_value),
+            workflow_id: state_value(state_map, :workflow_id)
+          }
+          |> maybe_put_status(:backend, state_value(state_map, :backend))
+          |> maybe_put_status(:bus, state_value(state_map, :bus))
+          |> maybe_put_status(:command, state_value(state_map, :command))
+          |> maybe_put_status(:patterns, state_value(state_map, :patterns))
+          |> maybe_put_status(:schedule, state_value(state_map, :schedule))
+          |> maybe_put_status(:next_run_at, state_value(state_map, :next_run_at))
+          |> maybe_put_status(:root_dir, state_value(state_map, :root_dir))
+          |> maybe_put_status(:repo_path, state_value(state_map, :repo_path))
+          |> maybe_put_status(:events, state_value(state_map, :events))
+          |> maybe_put_status(:debounce_ms, state_value(state_map, :debounce_ms))
+          |> maybe_put_status(
+            :subscription_count,
+            list_count(state_value(state_map, :subscription_ids))
+          )
+          |> maybe_put_status(
+            :pending_paths,
+            map_size_or_nil(state_value(state_map, :pending_events))
+          )
+          |> maybe_put_status(:watcher_alive?, alive_pid?(state_value(state_map, :watcher_pid)))
+          |> maybe_put_status(:timer_active?, not is_nil(state_value(state_map, :timer_ref)))
+
+        status
+
+      {:error, reason} ->
+        %{
+          id: trigger_id,
+          pid: pid,
+          alive?: Process.alive?(pid),
+          trigger_type: trigger_type(%{}, registry_value),
+          workflow_id: fetch_value(registry_value, "workflow_id"),
+          reason: {:state_unavailable, reason}
+        }
+    end
+  end
+
+  defp safe_get_state(pid) when is_pid(pid) do
+    {:ok, :sys.get_state(pid)}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  defp normalize_state_map(value) when is_map(value), do: value
+  defp normalize_state_map(_value), do: %{}
+
+  defp trigger_type(state, registry_value) do
+    state_value(state, :type) || fetch_value(registry_value, "trigger_type")
+  end
+
+  defp state_value(state, key) when is_map(state) do
+    Map.get(state, key) || Map.get(state, to_string(key)) || fetch_atom_key(state, to_string(key))
+  end
+
+  defp maybe_put_status(map, _key, nil), do: map
+
+  defp maybe_put_status(map, key, value) do
+    Map.put(map, key, normalize_status_value(value))
+  end
+
+  defp normalize_status_value(%MapSet{} = value), do: value |> MapSet.to_list() |> Enum.sort()
+  defp normalize_status_value(value), do: value
+
+  defp list_count(values) when is_list(values), do: length(values)
+  defp list_count(_values), do: nil
+
+  defp map_size_or_nil(values) when is_map(values), do: map_size(values)
+  defp map_size_or_nil(_values), do: nil
+
+  defp alive_pid?(pid) when is_pid(pid), do: Process.alive?(pid)
+  defp alive_pid?(_other), do: nil
 
   defp find_manual_match(command, workflow_id, opts) do
     matches =

@@ -24,6 +24,9 @@
 
 Optional periodic sync runs when `sync_interval_ms` is configured.
 
+`TriggerRuntime.status/1` returns both trigger id lists and detailed per-trigger
+snapshots (`triggers`) with type-grouped `trigger_counts`.
+
 ## Supported Trigger Types
 
 - `manual`

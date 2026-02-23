@@ -107,6 +107,11 @@ defmodule Jido.Code.Workflow.TriggerRuntimeTest do
     status = TriggerRuntime.status(runtime)
     assert status.last_error == nil
     assert is_list(status.trigger_ids)
+    assert is_list(status.triggers)
+    assert status.trigger_counts["signal"] == 1
+    assert status.trigger_counts["manual"] == 1
+    assert Enum.any?(status.triggers, &(&1.trigger_type == "signal"))
+    assert Enum.any?(status.triggers, &(&1.trigger_type == "manual"))
     assert status.last_sync_at != nil
   end
 
@@ -214,6 +219,8 @@ defmodule Jido.Code.Workflow.TriggerRuntimeTest do
 
     status = TriggerRuntime.status(runtime)
     assert status.triggers_config_path == triggers_config_path
+    assert Enum.any?(status.triggers, &(&1.id == "runtime:signal:external"))
+    assert Enum.any?(status.triggers, &(&1.id == "runtime:manual:external"))
   end
 
   test "refresh/1 respects global max_concurrent_triggers setting", context do

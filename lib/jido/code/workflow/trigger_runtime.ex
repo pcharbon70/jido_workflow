@@ -163,6 +163,9 @@ defmodule Jido.Code.Workflow.TriggerRuntime do
   end
 
   defp status_payload(state) do
+    trigger_ids = TriggerSupervisor.list_trigger_ids(process_registry: state.process_registry)
+    triggers = TriggerSupervisor.list_trigger_statuses(process_registry: state.process_registry)
+
     %{
       workflow_registry: state.workflow_registry,
       trigger_supervisor: state.trigger_supervisor,
@@ -171,11 +174,20 @@ defmodule Jido.Code.Workflow.TriggerRuntime do
       triggers_config_path: state.triggers_config_path,
       backend: state.backend,
       sync_interval_ms: state.sync_interval_ms,
-      trigger_ids: TriggerSupervisor.list_trigger_ids(process_registry: state.process_registry),
+      trigger_ids: trigger_ids,
+      triggers: triggers,
+      trigger_counts: trigger_counts(triggers),
       last_result: state.last_result,
       last_error: state.last_error,
       last_sync_at: state.last_sync_at
     }
+  end
+
+  defp trigger_counts(triggers) when is_list(triggers) do
+    Enum.reduce(triggers, %{}, fn trigger_status, counts ->
+      type = trigger_status[:trigger_type] || "unknown"
+      Map.update(counts, to_string(type), 1, &(&1 + 1))
+    end)
   end
 
   defp schedule_periodic_sync(%{sync_interval_ms: nil} = state), do: state
