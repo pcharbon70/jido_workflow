@@ -20,6 +20,57 @@ defmodule Jido.Code.Workflow.CLITest do
            }
   end
 
+  test "routes reserved run options while keeping non-reserved options as inputs" do
+    assert {:ok, "workflow.run",
+            [
+              "code_review",
+              "--run-id",
+              "run_123",
+              "--backend",
+              "strategy",
+              "--source",
+              "/terminal",
+              "--bus",
+              "jido_workflow_bus",
+              "--timeout",
+              "45000",
+              "--no-start-app",
+              "--no-await-completion",
+              "--pretty",
+              "--inputs",
+              encoded_inputs
+            ]} =
+             CLI.resolve([
+               "--workflow",
+               "code_review",
+               "-run-id",
+               "run_123",
+               "-backend",
+               "strategy",
+               "-source",
+               "/terminal",
+               "-bus",
+               "jido_workflow_bus",
+               "-timeout",
+               "45000",
+               "-start-app",
+               "false",
+               "-await-completion",
+               "0",
+               "-pretty",
+               "true",
+               "-file-path",
+               "lib/example.ex",
+               "-mode",
+               "full"
+             ])
+
+    assert Jason.decode!(encoded_inputs) == %{
+             "file_path" => "lib/example.ex",
+             "mode" => "full"
+           }
+  end
+
   test "routes workflow id with no options to workflow.run" do
     assert {:ok, "workflow.run", ["my_flow"]} = CLI.resolve(["--workflow", "my_flow"])
   end
@@ -39,6 +90,17 @@ defmodule Jido.Code.Workflow.CLITest do
 
     assert {:error, :invalid_option_pairs} =
              CLI.resolve(["--workflow", "code_review", "--file-path", "lib/example.ex"])
+  end
+
+  test "rejects invalid reserved run option values" do
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "-backend", "unknown"])
+
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "-timeout", "0"])
+
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "-await-completion", "maybe"])
   end
 
   test "rejects workflow commands without --workflow prefix" do

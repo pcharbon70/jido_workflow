@@ -87,12 +87,23 @@ Then use `jido` directly:
 ```bash
 jido --workflow my_flow -file_path lib/foo.ex -mode full
 jido --workflow review_flow -repo_path /tmp/repo -pr_number 42
+jido --workflow review_flow -backend strategy -await-completion false -timeout 30000 -repo_path /tmp/repo
 ```
 
 `jido` routes to `mix workflow.run`.
 The first arg after `--workflow` is always the workflow ID, and every
 subsequent argument must be an input pair in `-option-name option-value` form.
-Option names are normalized to lowercase snake_case keys in the `inputs` map.
+Option names are normalized to lowercase snake_case keys in the `inputs` map,
+except reserved run options that are forwarded directly to `mix workflow.run`:
+
+- `run_id`
+- `backend`
+- `source`
+- `bus`
+- `timeout`
+- `start_app`
+- `await_completion`
+- `pretty`
 
 For terminal usage outside IEx, use:
 
