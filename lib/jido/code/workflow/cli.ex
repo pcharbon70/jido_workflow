@@ -2,7 +2,7 @@ defmodule Jido.Code.Workflow.CLI do
   @moduledoc """
   Command-line entrypoint for workflow operations.
 
-  This module powers the `jido` escript so workflow commands can be executed
+  This module powers the `workflow` escript so workflow commands can be executed
   without prefixing every invocation with `mix`.
   """
 
@@ -10,10 +10,9 @@ defmodule Jido.Code.Workflow.CLI do
 
   @usage """
   Usage:
-    jido --workflow <workflow-name-without-a-slash> [-option-name option-value]...
+    workflow <workflow-name-without-a-slash> [-option-name option-value]...
 
   Notes:
-  - `--workflow` must be the first argument for workflow CLI commands.
   - `<workflow-name-without-a-slash>` is passed as the `workflow_id` positional arg to `mix workflow.run`.
   - All options after the workflow name must be `-option-name option-value` pairs.
   - Reserved run options are forwarded to `mix workflow.run`:
@@ -57,10 +56,9 @@ defmodule Jido.Code.Workflow.CLI do
   def resolve([]), do: {:error, :missing_command}
   def resolve([value]) when value in ["help", "--help", "-h"], do: {:error, :help}
   def resolve([value | _rest]) when value in ["help", "--help", "-h"], do: {:error, :help}
-  def resolve(["--workflow" | rest]), do: resolve_workflow_run(rest)
-  def resolve(_args), do: {:error, :workflow_prefix_required}
 
-  defp resolve_workflow_run([]), do: {:error, :missing_workflow}
+  def resolve([workflow_id | option_tokens]),
+    do: resolve_workflow_run([workflow_id | option_tokens])
 
   defp resolve_workflow_run([workflow_id | option_tokens]) when is_binary(workflow_id) do
     normalized_workflow_id = String.trim(workflow_id)
