@@ -146,3 +146,11 @@ workflow sample_flow -value hello
 
 The first argument is the workflow id. Remaining pairs are
 mapped into workflow inputs (JSON-decoded when possible).
+
+You can also route directly to terminal control/watch tasks:
+
+```bash
+workflow --control runtime-status
+workflow --control list --status running --limit 20
+workflow --watch --limit 10
+```

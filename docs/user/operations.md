@@ -78,6 +78,27 @@ You can also use Mix wrappers:
 
 ```bash
 mix workflow.run my_flow --inputs '{"value":"hello"}'
+```
+
+Or use the `workflow` executable task-routing flags:
+
+```bash
+workflow --control list --status running --limit 20
+workflow --control pause <run_id>
+workflow --control resume <run_id>
+workflow --control cancel <run_id> --reason "user_requested"
+workflow --control mode <run_id> --mode step
+workflow --control step <run_id>
+workflow --control get <run_id>
+workflow --control runtime-status
+workflow --signal workflow.registry.refresh.requested --data '{}'
+workflow --watch --pattern workflow.run.* --limit 20
+workflow --command /workflow:my_flow --workflow-id my_flow --params '{"value":"hello"}'
+```
+
+Equivalent Mix wrappers remain available:
+
+```bash
 mix workflow.control list --status running --limit 20
 mix workflow.control pause <run_id>
 mix workflow.control resume <run_id>

@@ -97,11 +97,15 @@ Then use `workflow` directly:
 workflow my_flow -file_path lib/foo.ex -mode full
 workflow review_flow -repo_path /tmp/repo -pr_number 42
 workflow review_flow -backend strategy -await-completion false -timeout 30000 -repo_path /tmp/repo
+workflow --control list --status running --limit 20
+workflow --signal workflow.registry.refresh.requested --data '{}'
+workflow --watch --pattern workflow.run.* --limit 20
+workflow --command /workflow:review --workflow-id code_review --params '{"value":"hello"}'
 ```
 
-`workflow` routes to `mix workflow.run`.
-The first arg is always the workflow ID, and every
-subsequent argument must be an input pair in `-option-name option-value` form.
+`workflow` defaults to `mix workflow.run` when the first argument is a workflow id.
+In run mode, every subsequent argument must be an input pair in
+`-option-name option-value` form.
 Option names are normalized to lowercase snake_case keys in the `inputs` map,
 except reserved run options that are forwarded directly to `mix workflow.run`:
 
@@ -116,6 +120,13 @@ except reserved run options that are forwarded directly to `mix workflow.run`:
 
 Non-reserved input values are JSON-decoded when possible (booleans, numbers,
 objects, arrays, `null`); values that do not decode are passed as strings.
+
+For non-run operations, these task-routing flags are available:
+
+- `workflow --control ...` -> `mix workflow.control ...`
+- `workflow --signal ...` -> `mix workflow.signal ...`
+- `workflow --watch ...` -> `mix workflow.watch ...`
+- `workflow --command ...` -> `mix workflow.command ...`
 
 For terminal usage outside IEx, use:
 

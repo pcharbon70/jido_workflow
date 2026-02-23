@@ -30,11 +30,15 @@ Then run commands directly:
 ./workflow code_review -file_path lib/example.ex -mode full
 ./workflow release_validation -target_branch main -commit_sha abc123
 ./workflow code_review -backend strategy -await-completion false -timeout 45000 -file_path lib/example.ex
+./workflow --control list --status running --limit 20
+./workflow --control pause run_123
+./workflow --watch --limit 10
+./workflow --command /workflow:code_review --workflow-id code_review --params '{"file_path":"lib/example.ex"}'
 ```
 
-`workflow` always routes to `mix workflow.run`.
-All trailing options must be `-option-name option-value` pairs, and they are
-encoded into the run `inputs` map, except these reserved run options:
+`workflow` defaults to `mix workflow.run` when the first argument is a workflow id.
+For run starts, all trailing options must be `-option-name option-value` pairs,
+and they are encoded into the run `inputs` map, except these reserved run options:
 
 - `-run-id`
 - `-backend` (`direct` or `strategy`)
@@ -44,6 +48,13 @@ encoded into the run `inputs` map, except these reserved run options:
 - `-start-app` (`true|false` or `1|0`)
 - `-await-completion` (`true|false` or `1|0`)
 - `-pretty` (`true|false` or `1|0`)
+
+You can also forward directly to other workflow Mix tasks:
+
+- `workflow --control ...` -> `mix workflow.control ...`
+- `workflow --signal ...` -> `mix workflow.signal ...`
+- `workflow --watch ...` -> `mix workflow.watch ...`
+- `workflow --command ...` -> `mix workflow.command ...`
 
 Non-reserved input values are JSON-decoded when possible (`true`, `3`, `9.5`,
 `{"k":"v"}`, `[1,2]`); otherwise they remain strings.

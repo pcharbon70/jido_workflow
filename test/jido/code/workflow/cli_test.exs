@@ -19,6 +19,25 @@ defmodule Jido.Code.Workflow.CLITest do
            }
   end
 
+  test "routes task-mode flags to their mix tasks" do
+    assert {:ok, "workflow.control", ["list", "--status", "running"]} =
+             CLI.resolve(["--control", "list", "--status", "running"])
+
+    assert {:ok, "workflow.signal", ["workflow.run.list.requested", "--data", ~s({"limit":5})]} =
+             CLI.resolve(["--signal", "workflow.run.list.requested", "--data", ~s({"limit":5})])
+
+    assert {:ok, "workflow.watch", []} = CLI.resolve(["--watch"])
+
+    assert {:ok, "workflow.command", ["/workflow:review", "--workflow-id", "code_review"]} =
+             CLI.resolve(["--command", "/workflow:review", "--workflow-id", "code_review"])
+  end
+
+  test "rejects task-mode flags missing required positional arguments" do
+    assert {:error, :missing_command} = CLI.resolve(["--control"])
+    assert {:error, :missing_command} = CLI.resolve(["--signal"])
+    assert {:error, :missing_command} = CLI.resolve(["--command"])
+  end
+
   test "decodes JSON literals for non-reserved input option values" do
     assert {:ok, "workflow.run", ["code_review", "--inputs", encoded_inputs]} =
              CLI.resolve([
