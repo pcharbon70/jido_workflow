@@ -10,16 +10,17 @@ defmodule Jido.Code.Workflow.CLI do
 
   @usage """
   Usage:
-    jido /workflow:command [options]
-    jido command <command> [options]
-    jido run <workflow_id> [options]
-    jido control <action> [args] [options]
-    jido signal <signal_type> [options]
-    jido watch [options]
+    jido --workflow /workflow:command [options]
+    jido --workflow command <command> [options]
+    jido --workflow run <workflow_id> [options]
+    jido --workflow control <action> [args] [options]
+    jido --workflow signal <signal_type> [options]
+    jido --workflow watch [options]
 
   Notes:
-  - If the first argument starts with "/", it is treated as a manual workflow command.
-  - `jido workflow <subcommand> ...` is also supported (workflow prefix is optional).
+  - `--workflow` must be the first argument for workflow CLI commands.
+  - After `--workflow`, if the next argument starts with "/", it is treated as a manual workflow command.
+  - `jido --workflow workflow <subcommand> ...` is also supported.
   """
 
   @spec main([String.t()]) :: :ok | no_return()
@@ -38,8 +39,14 @@ defmodule Jido.Code.Workflow.CLI do
 
   @spec resolve([String.t()]) :: {:ok, String.t(), [String.t()]} | {:error, atom()}
   def resolve([]), do: {:error, :missing_command}
+  def resolve([value]) when value in ["help", "--help", "-h"], do: {:error, :help}
+  def resolve([value | _rest]) when value in ["help", "--help", "-h"], do: {:error, :help}
+  def resolve(["--workflow" | rest]), do: resolve_workflow(rest)
+  def resolve(_args), do: {:error, :workflow_prefix_required}
 
-  def resolve([command | rest]) when is_binary(command) do
+  defp resolve_workflow([]), do: {:error, :missing_command}
+
+  defp resolve_workflow([command | rest]) when is_binary(command) do
     normalized = String.trim(command)
 
     cond do

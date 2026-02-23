@@ -85,10 +85,10 @@ mix do escript.build + escript.install
 Then use `jido` directly:
 
 ```bash
-jido command /workflow:review --workflow-id code_review --params '{"value":"hello"}'
-jido /workflow:review --workflow-id code_review --params '{"value":"hello"}'
-jido run my_flow --inputs '{"value":"hello"}'
-jido control list --status running --limit 20
+jido --workflow command /workflow:review --workflow-id code_review --params '{"value":"hello"}'
+jido --workflow /workflow:review --workflow-id code_review --params '{"value":"hello"}'
+jido --workflow run my_flow --inputs '{"value":"hello"}'
+jido --workflow control list --status running --limit 20
 ```
 
 `jido` routes to the same internal command handlers as the Mix tasks.

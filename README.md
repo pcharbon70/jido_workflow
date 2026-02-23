@@ -27,10 +27,10 @@ mix escript.build
 Then run commands directly:
 
 ```bash
-./jido /workflow:review --workflow-id code_review --params '{"value":"hello"}'
-./jido command /workflow:review --workflow-id code_review
-./jido run code_review --inputs '{"file_path":"lib/example.ex"}'
-./jido control list --status running
+./jido --workflow /workflow:review --workflow-id code_review --params '{"value":"hello"}'
+./jido --workflow command /workflow:review --workflow-id code_review
+./jido --workflow run code_review --inputs '{"file_path":"lib/example.ex"}'
+./jido --workflow control list --status running
 ```
 
 Install globally (optional):
