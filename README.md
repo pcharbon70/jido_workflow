@@ -45,6 +45,9 @@ encoded into the run `inputs` map, except these reserved run options:
 - `-await-completion` (`true|false` or `1|0`)
 - `-pretty` (`true|false` or `1|0`)
 
+Non-reserved input values are JSON-decoded when possible (`true`, `3`, `9.5`,
+`{"k":"v"}`, `[1,2]`); otherwise they remain strings.
+
 Install globally (optional):
 
 ```bash

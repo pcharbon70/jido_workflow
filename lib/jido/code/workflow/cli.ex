@@ -101,10 +101,21 @@ defmodule Jido.Code.Workflow.CLI do
       if key in @run_option_keys do
         {Map.put(run_options, key, value), inputs}
       else
-        {run_options, Map.put(inputs, key, value)}
+        {run_options, Map.put(inputs, key, decode_input_value(value))}
       end
     end)
   end
+
+  defp decode_input_value(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    case Jason.decode(trimmed) do
+      {:ok, decoded} -> decoded
+      {:error, _reason} -> value
+    end
+  end
+
+  defp decode_input_value(value), do: value
 
   defp encode_input_args(inputs) when map_size(inputs) == 0, do: {:ok, []}
   defp encode_input_args(inputs), do: {:ok, ["--inputs", Jason.encode!(inputs)]}
