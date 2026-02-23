@@ -3,45 +3,47 @@ defmodule Jido.Code.Workflow.CLITest do
 
   alias Jido.Code.Workflow.CLI
 
-  test "routes slash-prefixed command to workflow.command when --workflow is first" do
-    assert {:ok, "workflow.command", ["/workflow:review", "--workflow-id", "code_review"]} =
-             CLI.resolve(["--workflow", "/workflow:review", "--workflow-id", "code_review"])
-  end
-
-  test "routes command subcommand to workflow.command when --workflow is first" do
-    assert {:ok, "workflow.command", ["/workflow:review", "--params", ~s({"value":"ok"})]} =
+  test "routes workflow id and option pairs to workflow.run" do
+    assert {:ok, "workflow.run", ["code_review", "--inputs", encoded_inputs]} =
              CLI.resolve([
                "--workflow",
-               "command",
-               "/workflow:review",
-               "--params",
-               ~s({"value":"ok"})
+               "code_review",
+               "-file-path",
+               "lib/example.ex",
+               "-mode",
+               "full"
              ])
+
+    assert Jason.decode!(encoded_inputs) == %{
+             "file_path" => "lib/example.ex",
+             "mode" => "full"
+           }
   end
 
-  test "supports optional workflow prefix" do
-    assert {:ok, "workflow.control", ["list", "--status", "running"]} =
-             CLI.resolve(["--workflow", "workflow", "control", "list", "--status", "running"])
-  end
-
-  test "routes named subcommands" do
-    assert {:ok, "workflow.run", ["my_flow"]} = CLI.resolve(["--workflow", "run", "my_flow"])
-
-    assert {:ok, "workflow.signal", ["workflow.runtime.status.requested"]} =
-             CLI.resolve(["--workflow", "signal", "workflow.runtime.status.requested"])
-
-    assert {:ok, "workflow.watch", ["--limit", "5"]} =
-             CLI.resolve(["--workflow", "watch", "--limit", "5"])
+  test "routes workflow id with no options to workflow.run" do
+    assert {:ok, "workflow.run", ["my_flow"]} = CLI.resolve(["--workflow", "my_flow"])
   end
 
   test "rejects missing and unknown commands" do
     assert {:error, :missing_command} = CLI.resolve([])
-    assert {:error, :unknown_command} = CLI.resolve(["--workflow", "unknown"])
+    assert {:error, :missing_workflow} = CLI.resolve(["--workflow"])
+    assert {:error, :invalid_workflow_name} = CLI.resolve(["--workflow", "/workflow:review"])
+  end
+
+  test "rejects malformed option pairs" do
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "-file-path"])
+
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "file-path", "lib/example.ex"])
+
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "--file-path", "lib/example.ex"])
   end
 
   test "rejects workflow commands without --workflow prefix" do
+    assert {:error, :workflow_prefix_required} = CLI.resolve(["my_flow", "-mode", "full"])
     assert {:error, :workflow_prefix_required} = CLI.resolve(["run", "my_flow"])
-    assert {:error, :workflow_prefix_required} = CLI.resolve(["/workflow:review"])
   end
 
   test "routes help inputs to usage" do

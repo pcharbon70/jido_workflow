@@ -10,17 +10,13 @@ defmodule Jido.Code.Workflow.CLI do
 
   @usage """
   Usage:
-    jido --workflow /workflow:command [options]
-    jido --workflow command <command> [options]
-    jido --workflow run <workflow_id> [options]
-    jido --workflow control <action> [args] [options]
-    jido --workflow signal <signal_type> [options]
-    jido --workflow watch [options]
+    jido --workflow <workflow-name-without-a-slash> [-option-name option-value]...
 
   Notes:
   - `--workflow` must be the first argument for workflow CLI commands.
-  - After `--workflow`, if the next argument starts with "/", it is treated as a manual workflow command.
-  - `jido --workflow workflow <subcommand> ...` is also supported.
+  - `<workflow-name-without-a-slash>` is passed as the `workflow_id` positional arg to `mix workflow.run`.
+  - All options after the workflow name must be `-option-name option-value` pairs.
+  - Each option pair is converted into `--inputs` JSON for `mix workflow.run`.
   """
 
   @spec main([String.t()]) :: :ok | no_return()
@@ -41,36 +37,78 @@ defmodule Jido.Code.Workflow.CLI do
   def resolve([]), do: {:error, :missing_command}
   def resolve([value]) when value in ["help", "--help", "-h"], do: {:error, :help}
   def resolve([value | _rest]) when value in ["help", "--help", "-h"], do: {:error, :help}
-  def resolve(["--workflow" | rest]), do: resolve_workflow(rest)
+  def resolve(["--workflow" | rest]), do: resolve_workflow_run(rest)
   def resolve(_args), do: {:error, :workflow_prefix_required}
 
-  defp resolve_workflow([]), do: {:error, :missing_command}
+  defp resolve_workflow_run([]), do: {:error, :missing_workflow}
 
-  defp resolve_workflow([command | rest]) when is_binary(command) do
-    normalized = String.trim(command)
+  defp resolve_workflow_run([workflow_id | option_tokens]) when is_binary(workflow_id) do
+    normalized_workflow_id = String.trim(workflow_id)
 
     cond do
-      normalized == "" ->
-        {:error, :missing_command}
+      normalized_workflow_id == "" ->
+        {:error, :missing_workflow}
 
-      String.starts_with?(normalized, "/") ->
-        {:ok, "workflow.command", [normalized | rest]}
+      String.starts_with?(normalized_workflow_id, "/") ->
+        {:error, :invalid_workflow_name}
 
       true ->
-        resolve_named([String.downcase(normalized) | rest])
+        resolve_workflow_run_args(normalized_workflow_id, option_tokens)
     end
   end
 
-  defp resolve_named([]), do: {:error, :missing_command}
-  defp resolve_named(["workflow" | rest]), do: resolve_named(rest)
-  defp resolve_named([value]) when value in ["help", "--help", "-h"], do: {:error, :help}
-  defp resolve_named([value | _rest]) when value in ["help", "--help", "-h"], do: {:error, :help}
-  defp resolve_named(["command" | rest]), do: {:ok, "workflow.command", rest}
-  defp resolve_named(["run" | rest]), do: {:ok, "workflow.run", rest}
-  defp resolve_named(["control" | rest]), do: {:ok, "workflow.control", rest}
-  defp resolve_named(["signal" | rest]), do: {:ok, "workflow.signal", rest}
-  defp resolve_named(["watch" | rest]), do: {:ok, "workflow.watch", rest}
-  defp resolve_named(_args), do: {:error, :unknown_command}
+  defp resolve_workflow_run_args(workflow_id, option_tokens) do
+    case parse_option_pairs(option_tokens) do
+      {:ok, inputs} when map_size(inputs) == 0 ->
+        {:ok, "workflow.run", [workflow_id]}
+
+      {:ok, inputs} ->
+        {:ok, "workflow.run", [workflow_id, "--inputs", Jason.encode!(inputs)]}
+
+      {:error, _reason} ->
+        {:error, :invalid_option_pairs}
+    end
+  end
+
+  defp parse_option_pairs(option_tokens), do: do_parse_option_pairs(option_tokens, %{})
+
+  defp do_parse_option_pairs([], inputs), do: {:ok, inputs}
+
+  defp do_parse_option_pairs([_option_without_value], _inputs),
+    do: {:error, :missing_option_value}
+
+  defp do_parse_option_pairs([option, value | rest], inputs) do
+    with {:ok, input_key} <- parse_input_key(option) do
+      do_parse_option_pairs(rest, Map.put(inputs, input_key, value))
+    end
+  end
+
+  defp parse_input_key(option) when is_binary(option) do
+    normalized = String.trim(option)
+
+    cond do
+      normalized == "" ->
+        {:error, :invalid_option_key}
+
+      not String.starts_with?(normalized, "-") ->
+        {:error, :invalid_option_key}
+
+      String.starts_with?(normalized, "--") ->
+        {:error, :invalid_option_key}
+
+      true ->
+        key =
+          normalized
+          |> String.trim_leading("-")
+          |> String.trim()
+          |> String.downcase()
+          |> String.replace("-", "_")
+
+        if key == "", do: {:error, :invalid_option_key}, else: {:ok, key}
+    end
+  end
+
+  defp parse_input_key(_option), do: {:error, :invalid_option_key}
 
   defp find_project_root(path) when is_binary(path) do
     current = Path.expand(path)

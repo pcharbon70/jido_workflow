@@ -27,11 +27,13 @@ mix escript.build
 Then run commands directly:
 
 ```bash
-./jido --workflow /workflow:review --workflow-id code_review --params '{"value":"hello"}'
-./jido --workflow command /workflow:review --workflow-id code_review
-./jido --workflow run code_review --inputs '{"file_path":"lib/example.ex"}'
-./jido --workflow control list --status running
+./jido --workflow code_review -file_path lib/example.ex -mode full
+./jido --workflow release_validation -target_branch main -commit_sha abc123
 ```
+
+`jido --workflow` always routes to `mix workflow.run`.
+All trailing options must be `-option-name option-value` pairs, and they are
+encoded into the run `inputs` map.
 
 Install globally (optional):
 

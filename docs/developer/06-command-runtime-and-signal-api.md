@@ -85,13 +85,14 @@ mix do escript.build + escript.install
 Then use `jido` directly:
 
 ```bash
-jido --workflow command /workflow:review --workflow-id code_review --params '{"value":"hello"}'
-jido --workflow /workflow:review --workflow-id code_review --params '{"value":"hello"}'
-jido --workflow run my_flow --inputs '{"value":"hello"}'
-jido --workflow control list --status running --limit 20
+jido --workflow my_flow -file_path lib/foo.ex -mode full
+jido --workflow review_flow -repo_path /tmp/repo -pr_number 42
 ```
 
-`jido` routes to the same internal command handlers as the Mix tasks.
+`jido` routes to `mix workflow.run`.
+The first arg after `--workflow` is always the workflow ID, and every
+subsequent argument must be an input pair in `-option-name option-value` form.
+Option names are normalized to lowercase snake_case keys in the `inputs` map.
 
 For terminal usage outside IEx, use:
 
