@@ -14,6 +14,7 @@ defmodule Jido.Code.Workflow.Triggers.Manual do
   @default_process_registry Jido.Code.Workflow.TriggerProcessRegistry
 
   @type state :: %{
+          type: String.t(),
           id: String.t(),
           workflow_id: String.t(),
           command: String.t() | nil,
@@ -58,6 +59,7 @@ defmodule Jido.Code.Workflow.Triggers.Manual do
          :ok <- require_binary(workflow_id, :workflow_id) do
       {:ok,
        %{
+         type: "manual",
          id: id,
          workflow_id: workflow_id,
          command: command,

@@ -18,6 +18,7 @@ defmodule Jido.Code.Workflow.Triggers.Scheduled do
   @default_process_registry Jido.Code.Workflow.TriggerProcessRegistry
 
   @type state :: %{
+          type: String.t(),
           id: String.t(),
           workflow_id: String.t(),
           schedule: String.t(),
@@ -57,6 +58,7 @@ defmodule Jido.Code.Workflow.Triggers.Scheduled do
          {:ok, cron_expression} <- parse_schedule(schedule),
          {:ok, state} <-
            schedule_next_run(%{
+             type: "scheduled",
              id: id,
              workflow_id: workflow_id,
              schedule: schedule,

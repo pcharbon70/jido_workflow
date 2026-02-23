@@ -1995,11 +1995,16 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                         "status" => %{
                           "trigger_supervisor" => _trigger_supervisor,
                           "process_registry" => _process_registry,
-                          "bus" => _bus
+                          "bus" => _bus,
+                          "triggers" => triggers,
+                          "trigger_counts" => trigger_counts
                         }
                       }
                     }},
                    5_000
+
+    assert is_list(triggers)
+    assert is_map(trigger_counts)
   end
 
   test "rejects workflow.trigger.refresh.requested when trigger runtime is unavailable",

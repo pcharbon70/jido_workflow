@@ -16,6 +16,7 @@ defmodule Jido.Code.Workflow.Triggers.GitHook do
   @default_process_registry Jido.Code.Workflow.TriggerProcessRegistry
 
   @type state :: %{
+          type: String.t(),
           id: String.t(),
           workflow_id: String.t(),
           events: MapSet.t(String.t()),
@@ -55,6 +56,7 @@ defmodule Jido.Code.Workflow.Triggers.GitHook do
          {:ok, watcher_pid} <- start_watcher([git_dir]) do
       {:ok,
        %{
+         type: "git_hook",
          id: id,
          workflow_id: workflow_id,
          events: events,

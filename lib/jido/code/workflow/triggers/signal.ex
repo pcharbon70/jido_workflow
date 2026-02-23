@@ -14,6 +14,7 @@ defmodule Jido.Code.Workflow.Triggers.Signal do
   @default_process_registry Jido.Code.Workflow.TriggerProcessRegistry
 
   @type state :: %{
+          type: String.t(),
           id: String.t(),
           workflow_id: String.t(),
           bus: atom(),
@@ -49,6 +50,7 @@ defmodule Jido.Code.Workflow.Triggers.Signal do
          {:ok, subscription_ids} <- subscribe_patterns(bus, patterns) do
       {:ok,
        %{
+         type: "signal",
          id: id,
          workflow_id: workflow_id,
          bus: bus,
