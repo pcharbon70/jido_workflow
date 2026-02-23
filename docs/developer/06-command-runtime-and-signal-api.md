@@ -43,6 +43,15 @@ Triggers:
 - `workflow.trigger.sync.requested`
 - `workflow.trigger.runtime.status.requested`
 
+## Runtime Status Payload
+
+`workflow.runtime.status.accepted` returns command-runtime wiring and health fields, including:
+
+- bus + runtime process references
+- tracked in-flight `run_tasks`
+- `run_store_summary` (`total_runs` + `by_status`)
+- `hook_runtime_status` (adapter/runtime subscription health)
+
 ## Start Request Shape
 
 Accepted `workflow.run.start.requested` fields:
