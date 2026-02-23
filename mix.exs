@@ -9,6 +9,7 @@ defmodule Jido.Code.Workflow.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
+      escript: escript(),
       dialyzer: [
         plt_add_apps: [:mix, :ex_unit],
         plt_file: {:no_warn, "priv/plts/project.plt"}
@@ -28,7 +29,7 @@ defmodule Jido.Code.Workflow.MixProject do
 
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger, :mix],
       mod: {Jido.Code.Workflow.Application, []}
     ]
   end
@@ -49,6 +50,14 @@ defmodule Jido.Code.Workflow.MixProject do
   defp aliases do
     [
       quality: ["test", "credo --strict", "dialyzer"]
+    ]
+  end
+
+  defp escript do
+    [
+      main_module: Jido.Code.Workflow.CLI,
+      name: "jido",
+      app: nil
     ]
   end
 end

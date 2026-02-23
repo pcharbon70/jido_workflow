@@ -1,0 +1,54 @@
+defmodule Jido.Code.Workflow.CLITest do
+  use ExUnit.Case, async: true
+
+  alias Jido.Code.Workflow.CLI
+
+  test "routes workflow id and option pairs to workflow.run" do
+    assert {:ok, "workflow.run", ["code_review", "--inputs", encoded_inputs]} =
+             CLI.resolve([
+               "--workflow",
+               "code_review",
+               "-file-path",
+               "lib/example.ex",
+               "-mode",
+               "full"
+             ])
+
+    assert Jason.decode!(encoded_inputs) == %{
+             "file_path" => "lib/example.ex",
+             "mode" => "full"
+           }
+  end
+
+  test "routes workflow id with no options to workflow.run" do
+    assert {:ok, "workflow.run", ["my_flow"]} = CLI.resolve(["--workflow", "my_flow"])
+  end
+
+  test "rejects missing and unknown commands" do
+    assert {:error, :missing_command} = CLI.resolve([])
+    assert {:error, :missing_workflow} = CLI.resolve(["--workflow"])
+    assert {:error, :invalid_workflow_name} = CLI.resolve(["--workflow", "/workflow:review"])
+  end
+
+  test "rejects malformed option pairs" do
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "-file-path"])
+
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "file-path", "lib/example.ex"])
+
+    assert {:error, :invalid_option_pairs} =
+             CLI.resolve(["--workflow", "code_review", "--file-path", "lib/example.ex"])
+  end
+
+  test "rejects workflow commands without --workflow prefix" do
+    assert {:error, :workflow_prefix_required} = CLI.resolve(["my_flow", "-mode", "full"])
+    assert {:error, :workflow_prefix_required} = CLI.resolve(["run", "my_flow"])
+  end
+
+  test "routes help inputs to usage" do
+    assert {:error, :help} = CLI.resolve(["help"])
+    assert {:error, :help} = CLI.resolve(["--help"])
+    assert {:error, :help} = CLI.resolve(["-h"])
+  end
+end

@@ -74,7 +74,25 @@ Bus.publish(bus, [
 
 No websocket or channel transport is required for command/control.
 
-## CLI Helper Task
+## CLI Helper Commands
+
+Build/install the project CLI once:
+
+```bash
+mix do escript.build + escript.install
+```
+
+Then use `jido` directly:
+
+```bash
+jido --workflow my_flow -file_path lib/foo.ex -mode full
+jido --workflow review_flow -repo_path /tmp/repo -pr_number 42
+```
+
+`jido` routes to `mix workflow.run`.
+The first arg after `--workflow` is always the workflow ID, and every
+subsequent argument must be an input pair in `-option-name option-value` form.
+Option names are normalized to lowercase snake_case keys in the `inputs` map.
 
 For terminal usage outside IEx, use:
 
