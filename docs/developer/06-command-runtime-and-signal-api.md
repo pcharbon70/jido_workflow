@@ -74,7 +74,24 @@ Bus.publish(bus, [
 
 No websocket or channel transport is required for command/control.
 
-## CLI Helper Task
+## CLI Helper Commands
+
+Build/install the project CLI once:
+
+```bash
+mix do escript.build + escript.install
+```
+
+Then use `jido` directly:
+
+```bash
+jido command /workflow:review --workflow-id code_review --params '{"value":"hello"}'
+jido /workflow:review --workflow-id code_review --params '{"value":"hello"}'
+jido run my_flow --inputs '{"value":"hello"}'
+jido control list --status running --limit 20
+```
+
+`jido` routes to the same internal command handlers as the Mix tasks.
 
 For terminal usage outside IEx, use:
 
