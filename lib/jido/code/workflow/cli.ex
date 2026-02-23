@@ -11,6 +11,10 @@ defmodule Jido.Code.Workflow.CLI do
   @usage """
   Usage:
     workflow <workflow-name-without-a-slash> [-option-name option-value]...
+    workflow --control <action> [args/options]
+    workflow --signal <signal-type> [options]
+    workflow --watch [options]
+    workflow --command <command> [options]
 
   Notes:
   - `<workflow-name-without-a-slash>` is passed as the `workflow_id` positional arg to `mix workflow.run`.
@@ -25,6 +29,9 @@ defmodule Jido.Code.Workflow.CLI do
     - `-await-completion` (true/false)
     - `-pretty` (true/false)
   - All non-reserved option pairs are converted into `--inputs` JSON.
+  - `--control`, `--signal`, `--watch`, and `--command` forward remaining args
+    directly to `mix workflow.control`, `mix workflow.signal`, `mix workflow.watch`,
+    and `mix workflow.command`.
   """
 
   @run_option_keys [
@@ -37,6 +44,22 @@ defmodule Jido.Code.Workflow.CLI do
     "await_completion",
     "pretty"
   ]
+
+  @task_route_flags ["--control", "--signal", "--watch", "--command"]
+
+  @task_route_targets %{
+    "--control" => "workflow.control",
+    "--signal" => "workflow.signal",
+    "--watch" => "workflow.watch",
+    "--command" => "workflow.command"
+  }
+
+  @task_route_requires_args %{
+    "--control" => true,
+    "--signal" => true,
+    "--watch" => false,
+    "--command" => true
+  }
 
   @spec main([String.t()]) :: :ok | no_return()
   def main(args) do
@@ -57,8 +80,21 @@ defmodule Jido.Code.Workflow.CLI do
   def resolve([value]) when value in ["help", "--help", "-h"], do: {:error, :help}
   def resolve([value | _rest]) when value in ["help", "--help", "-h"], do: {:error, :help}
 
+  def resolve([task_flag | task_args]) when task_flag in @task_route_flags,
+    do: resolve_task_route(task_flag, task_args)
+
   def resolve([workflow_id | option_tokens]),
     do: resolve_workflow_run([workflow_id | option_tokens])
+
+  defp resolve_task_route(task_flag, task_args) do
+    requires_args? = Map.fetch!(@task_route_requires_args, task_flag)
+
+    if requires_args? and task_args == [] do
+      {:error, :missing_command}
+    else
+      {:ok, Map.fetch!(@task_route_targets, task_flag), task_args}
+    end
+  end
 
   defp resolve_workflow_run([workflow_id | option_tokens]) when is_binary(workflow_id) do
     normalized_workflow_id = String.trim(workflow_id)

@@ -77,6 +77,15 @@ Bus.publish(bus, [
 flush()
 ```
 
+## CLI Shortcuts
+
+The `workflow` executable can route directly to command helper tasks:
+
+- `workflow --control ...` (`mix workflow.control`)
+- `workflow --signal ...` (`mix workflow.signal`)
+- `workflow --watch ...` (`mix workflow.watch`)
+- `workflow --command ...` (`mix workflow.command`)
+
 ## Workflow Lifecycle Event Signals
 
 These are emitted by `Jido.Code.Workflow.Broadcaster` during execution:
