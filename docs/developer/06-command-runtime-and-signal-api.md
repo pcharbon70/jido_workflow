@@ -52,7 +52,7 @@ Triggers:
 - `workflow_registry_summary` (`total_workflows`, `enabled_workflows`, `disabled_workflows`, `valid_workflows`, `invalid_workflows`, `total_error_count`, `invalid_workflow_ids`, `disabled_workflow_ids`)
 - `run_store_summary` (`total_runs`, `by_status`, `workflow_counts`, `active_runs`, `active_run_ids`, `latest_run_id`, `latest_run_status`, `latest_workflow_id`)
 - `trigger_runtime_status` (active trigger ids/counts and last sync snapshot)
-- `hook_runtime_status` (adapter/runtime subscription health)
+- `hook_runtime_status` (`subscription_count`, `supported_signal_types`, `subscribed_signal_types`, `missing_signal_types`, plus adapter/bus metadata)
 - component error fields (`workflow_registry_error`, `run_store_error`, `trigger_runtime_error`, `hook_runtime_error`)
 
 ## Start Request Shape
