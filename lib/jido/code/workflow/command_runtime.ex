@@ -106,7 +106,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
           trigger_runtime: GenServer.server(),
           hook_runtime: GenServer.server(),
           backend: Engine.backend() | nil,
-          subscription_ids: [String.t()],
+          subscriptions_by_command_type: %{String.t() => String.t()},
           run_tasks: %{String.t() => run_task()},
           run_id_by_monitor_ref: %{reference() => String.t()}
         }
@@ -138,7 +138,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
     backend = normalize_backend(Keyword.get(opts, :backend))
 
     case subscribe_commands(bus) do
-      {:ok, subscription_ids} ->
+      {:ok, subscriptions_by_command_type} ->
         {:ok,
          %{
            bus: bus,
@@ -149,7 +149,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
            trigger_runtime: trigger_runtime,
            hook_runtime: hook_runtime,
            backend: backend,
-           subscription_ids: subscription_ids,
+           subscriptions_by_command_type: subscriptions_by_command_type,
            run_tasks: %{},
            run_id_by_monitor_ref: %{}
          }}
@@ -162,7 +162,7 @@ defmodule Jido.Code.Workflow.CommandRuntime do
   @impl true
   def terminate(_reason, state) do
     _ = stop_all_run_tasks(state)
-    unsubscribe_all(state.bus, state.subscription_ids)
+    unsubscribe_all(state.bus, Map.values(state.subscriptions_by_command_type))
     :ok
   end
 
@@ -933,19 +933,15 @@ defmodule Jido.Code.Workflow.CommandRuntime do
 
   defp subscribe_commands(bus) do
     command_types()
-    |> Enum.reduce_while({:ok, []}, fn type, {:ok, subscription_ids} ->
+    |> Enum.reduce_while({:ok, %{}}, fn type, {:ok, subscriptions_by_command_type} ->
       case Bus.subscribe(bus, type, dispatch: {:pid, target: self()}) do
         {:ok, subscription_id} ->
-          {:cont, {:ok, [subscription_id | subscription_ids]}}
+          {:cont, {:ok, Map.put(subscriptions_by_command_type, type, subscription_id)}}
 
         {:error, reason} ->
-          unsubscribe_all(bus, subscription_ids)
+          unsubscribe_all(bus, Map.values(subscriptions_by_command_type))
           {:halt, {:error, {:subscribe_failed, type, reason}}}
       end
-    end)
-    |> then(fn
-      {:ok, subscription_ids} -> {:ok, Enum.reverse(subscription_ids)}
-      {:error, reason} -> {:error, reason}
     end)
   end
 
@@ -1379,6 +1375,13 @@ defmodule Jido.Code.Workflow.CommandRuntime do
   end
 
   defp status_payload(state) do
+    command_signal_types = command_types() |> Enum.sort()
+
+    subscribed_command_signal_types =
+      state.subscriptions_by_command_type
+      |> Map.keys()
+      |> Enum.sort()
+
     {workflow_registry_summary, workflow_registry_error} =
       workflow_registry_summary(state.workflow_registry)
 
@@ -1405,7 +1408,10 @@ defmodule Jido.Code.Workflow.CommandRuntime do
       hook_runtime: state.hook_runtime,
       hook_runtime_status: hook_runtime_status,
       hook_runtime_error: hook_runtime_error,
-      subscription_count: length(state.subscription_ids),
+      subscription_count: map_size(state.subscriptions_by_command_type),
+      command_signal_types: command_signal_types,
+      subscribed_command_signal_types: subscribed_command_signal_types,
+      missing_command_signal_types: command_signal_types -- subscribed_command_signal_types,
       run_tasks:
         Enum.into(state.run_tasks, %{}, fn {run_id, run_task} ->
           {run_id,

@@ -1158,6 +1158,10 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                       data: %{
                         "status" => %{
                           "subscription_count" => subscription_count,
+                          "command_signal_types" => command_signal_types,
+                          "subscribed_command_signal_types" =>
+                            subscribed_command_signal_types,
+                          "missing_command_signal_types" => [],
                           "workflow_registry_summary" => %{
                             "total_workflows" => 0,
                             "enabled_workflows" => 0,
@@ -1197,7 +1201,8 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                     }},
                    5_000
 
-    assert subscription_count >= 17
+    assert subscription_count == length(command_signal_types)
+    assert subscribed_command_signal_types == command_signal_types
     assert hook_subscription_count >= 7
     assert hook_subscription_count == length(hook_supported_signal_types)
     assert hook_subscribed_signal_types == hook_supported_signal_types

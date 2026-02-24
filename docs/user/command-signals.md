@@ -30,6 +30,9 @@ For command responses emitted by CommandRuntime:
 `workflow.runtime.status.accepted` includes command-runtime health details, including:
 
 - `subscription_count`
+- `command_signal_types`
+- `subscribed_command_signal_types`
+- `missing_command_signal_types`
 - `run_tasks`
 - `workflow_registry_summary` (`total_workflows`, `enabled_workflows`, `disabled_workflows`, `valid_workflows`, `invalid_workflows`, `total_error_count`, `invalid_workflow_ids`, `disabled_workflow_ids`)
 - `run_store_summary` (`total_runs`, `by_status`, `workflow_counts`, `active_runs`, `active_run_ids`, `latest_run_id`, `latest_run_status`, `latest_workflow_id`)
