@@ -1181,7 +1181,10 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                           },
                           "run_store_error" => nil,
                           "hook_runtime_status" => %{
-                            "subscription_count" => hook_subscription_count
+                            "subscription_count" => hook_subscription_count,
+                            "supported_signal_types" => hook_supported_signal_types,
+                            "subscribed_signal_types" => hook_subscribed_signal_types,
+                            "missing_signal_types" => []
                           },
                           "trigger_runtime_status" => %{
                             "trigger_ids" => [],
@@ -1196,6 +1199,8 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
 
     assert subscription_count >= 17
     assert hook_subscription_count >= 7
+    assert hook_subscription_count == length(hook_supported_signal_types)
+    assert hook_subscribed_signal_types == hook_supported_signal_types
   end
 
   test "runtime status summarizes run store activity by workflow and status", context do
@@ -1402,6 +1407,35 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                    5_000
 
     assert String.contains?(reason, "trigger_runtime_unavailable")
+  end
+
+  test "runtime status includes hook runtime errors when hook runtime is unavailable", context do
+    missing_hook_runtime = unique_name("command_runtime_missing_hook_runtime")
+
+    _ =
+      :sys.replace_state(
+        context.command_runtime,
+        &Map.put(&1, :hook_runtime, missing_hook_runtime)
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "hook_runtime_status" => nil,
+                          "hook_runtime_error" => reason
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "hook_runtime_unavailable")
   end
 
   test "handles workflow.run.step.requested for active strategy runs", context do

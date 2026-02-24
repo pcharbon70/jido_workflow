@@ -14,7 +14,7 @@ defmodule Jido.Code.Workflow.HookRuntime do
   @type state :: %{
           bus: atom(),
           adapter: module(),
-          subscription_ids: [String.t()]
+          subscriptions_by_signal_type: %{String.t() => String.t()}
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -34,8 +34,13 @@ defmodule Jido.Code.Workflow.HookRuntime do
     adapter = normalize_adapter(Keyword.get(opts, :adapter, default_adapter()))
 
     case subscribe_all(bus) do
-      {:ok, subscription_ids} ->
-        {:ok, %{bus: bus, adapter: adapter, subscription_ids: subscription_ids}}
+      {:ok, subscriptions_by_signal_type} ->
+        {:ok,
+         %{
+           bus: bus,
+           adapter: adapter,
+           subscriptions_by_signal_type: subscriptions_by_signal_type
+         }}
 
       {:error, reason} ->
         {:stop, reason}
@@ -44,17 +49,27 @@ defmodule Jido.Code.Workflow.HookRuntime do
 
   @impl true
   def terminate(_reason, state) do
-    unsubscribe_all(state.bus, state.subscription_ids)
+    unsubscribe_all(state.bus, Map.values(state.subscriptions_by_signal_type))
     :ok
   end
 
   @impl true
   def handle_call(:status, _from, state) do
+    supported_signal_types = HooksIntegration.supported_signal_types()
+
+    subscribed_signal_types =
+      state.subscriptions_by_signal_type
+      |> Map.keys()
+      |> Enum.sort()
+
     {:reply,
      %{
        bus: state.bus,
        adapter: state.adapter,
-       subscription_count: length(state.subscription_ids)
+       subscription_count: map_size(state.subscriptions_by_signal_type),
+       supported_signal_types: supported_signal_types,
+       subscribed_signal_types: subscribed_signal_types,
+       missing_signal_types: supported_signal_types -- subscribed_signal_types
      }, state}
   end
 
@@ -68,19 +83,16 @@ defmodule Jido.Code.Workflow.HookRuntime do
 
   defp subscribe_all(bus) do
     HooksIntegration.supported_signal_types()
-    |> Enum.reduce_while({:ok, []}, fn signal_type, {:ok, subscription_ids} ->
+    |> Enum.reduce_while({:ok, %{}}, fn signal_type, {:ok, subscriptions_by_signal_type} ->
       case Bus.subscribe(bus, signal_type, dispatch: {:pid, target: self()}) do
         {:ok, subscription_id} ->
-          {:cont, {:ok, [subscription_id | subscription_ids]}}
+          {:cont,
+           {:ok, Map.put(subscriptions_by_signal_type, signal_type, subscription_id)}}
 
         {:error, reason} ->
-          unsubscribe_all(bus, subscription_ids)
+          unsubscribe_all(bus, Map.values(subscriptions_by_signal_type))
           {:halt, {:error, {:subscribe_failed, signal_type, reason}}}
       end
-    end)
-    |> then(fn
-      {:ok, subscription_ids} -> {:ok, Enum.reverse(subscription_ids)}
-      {:error, reason} -> {:error, reason}
     end)
   end
 

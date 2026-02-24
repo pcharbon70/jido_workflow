@@ -59,6 +59,9 @@ defmodule Jido.Code.Workflow.HookRuntimeTest do
     assert status.bus == bus
     assert status.adapter == Jido.Code.Workflow.HookRuntimeTestAdapter
     assert status.subscription_count == length(HooksIntegration.supported_signal_types())
+    assert status.supported_signal_types == HooksIntegration.supported_signal_types()
+    assert status.subscribed_signal_types == HooksIntegration.supported_signal_types()
+    assert status.missing_signal_types == []
   end
 
   test "runtime ignores unsupported signals" do
