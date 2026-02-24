@@ -1158,6 +1158,14 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                       data: %{
                         "status" => %{
                           "subscription_count" => subscription_count,
+                          "workflow_registry_summary" => %{
+                            "total_workflows" => 0,
+                            "enabled_workflows" => 0,
+                            "disabled_workflows" => 0,
+                            "valid_workflows" => 0,
+                            "invalid_workflows" => 0
+                          },
+                          "workflow_registry_error" => nil,
                           "run_store_summary" => %{
                             "total_runs" => 0,
                             "by_status" => %{}
@@ -1165,6 +1173,11 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                           "hook_runtime_status" => %{
                             "subscription_count" => hook_subscription_count
                           },
+                          "trigger_runtime_status" => %{
+                            "trigger_ids" => [],
+                            "trigger_counts" => %{}
+                          },
+                          "trigger_runtime_error" => nil,
                           "run_tasks" => %{}
                         }
                       }
@@ -1173,6 +1186,66 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
 
     assert subscription_count >= 17
     assert hook_subscription_count >= 7
+  end
+
+  test "runtime status includes workflow registry errors when workflow registry is unavailable",
+       context do
+    missing_workflow_registry = unique_name("command_runtime_missing_workflow_registry")
+
+    _ =
+      :sys.replace_state(
+        context.command_runtime,
+        &Map.put(&1, :workflow_registry, missing_workflow_registry)
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "workflow_registry_summary" => nil,
+                          "workflow_registry_error" => reason
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "workflow_registry_unavailable")
+  end
+
+  test "runtime status includes trigger runtime errors when trigger runtime is unavailable",
+       context do
+    missing_trigger_runtime = unique_name("command_runtime_missing_trigger_runtime")
+
+    _ =
+      :sys.replace_state(
+        context.command_runtime,
+        &Map.put(&1, :trigger_runtime, missing_trigger_runtime)
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "trigger_runtime_status" => nil,
+                          "trigger_runtime_error" => reason
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "trigger_runtime_unavailable")
   end
 
   test "handles workflow.run.step.requested for active strategy runs", context do
