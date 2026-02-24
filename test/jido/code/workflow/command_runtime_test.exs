@@ -1163,7 +1163,10 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                             "enabled_workflows" => 0,
                             "disabled_workflows" => 0,
                             "valid_workflows" => 0,
-                            "invalid_workflows" => 0
+                            "invalid_workflows" => 0,
+                            "total_error_count" => 0,
+                            "invalid_workflow_ids" => [],
+                            "disabled_workflow_ids" => []
                           },
                           "workflow_registry_error" => nil,
                           "run_store_summary" => %{
@@ -1186,6 +1189,43 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
 
     assert subscription_count >= 17
     assert hook_subscription_count >= 7
+  end
+
+  test "runtime status summarizes disabled and invalid workflows with diagnostics", context do
+    write_workflow(context.tmp_dir, "status_valid_flow")
+    write_disabled_workflow(context.tmp_dir, "status_disabled_flow")
+    write_invalid_workflow(context.tmp_dir, "status_invalid_flow")
+
+    assert {:ok, _summary} = WorkflowRegistry.refresh(context.workflow_registry)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "workflow_registry_summary" => %{
+                            "total_workflows" => 3,
+                            "enabled_workflows" => 1,
+                            "disabled_workflows" => 2,
+                            "valid_workflows" => 2,
+                            "invalid_workflows" => 1,
+                            "total_error_count" => total_error_count,
+                            "invalid_workflow_ids" => invalid_workflow_ids,
+                            "disabled_workflow_ids" => disabled_workflow_ids
+                          }
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert total_error_count > 0
+    assert invalid_workflow_ids == ["status_invalid_flow"]
+    assert disabled_workflow_ids == ["status_disabled_flow", "status_invalid_flow"]
   end
 
   test "runtime status includes workflow registry errors when workflow registry is unavailable",
@@ -2739,6 +2779,33 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
     name: #{workflow_name}
     version: "1.0.0"
     enabled: false
+    ---
+
+    # #{workflow_name}
+
+    ## Steps
+
+    ### echo
+    - **type**: action
+    - **module**: Jido.Code.Workflow.CommandRuntimeTestActions.Echo
+    - **inputs**:
+      - value: `input:value`
+
+    ## Return
+    - **value**: echo
+    """
+
+    path = Path.join(dir, "#{workflow_name}.md")
+    File.write!(path, markdown)
+    path
+  end
+
+  defp write_invalid_workflow(dir, workflow_name) do
+    markdown = """
+    ---
+    name: #{workflow_name}
+    version: "invalid_version"
+    enabled: true
     ---
 
     # #{workflow_name}

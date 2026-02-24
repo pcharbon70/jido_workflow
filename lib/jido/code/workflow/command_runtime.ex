@@ -1429,14 +1429,40 @@ defmodule Jido.Code.Workflow.CommandRuntime do
 
     total_workflows = length(entries)
     enabled_workflows = Enum.count(entries, &Map.get(&1, :enabled, false))
-    invalid_workflows = Enum.count(entries, &(Map.get(&1, :valid?, false) == false))
+
+    invalid_workflow_ids =
+      entries
+      |> Enum.filter(&(Map.get(&1, :valid?, false) == false))
+      |> Enum.map(&Map.get(&1, :id))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort()
+
+    disabled_workflow_ids =
+      entries
+      |> Enum.filter(&(Map.get(&1, :enabled, false) == false))
+      |> Enum.map(&Map.get(&1, :id))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort()
+
+    total_error_count =
+      Enum.reduce(entries, 0, fn entry, count ->
+        case Map.get(entry, :error_count, 0) do
+          value when is_integer(value) and value > 0 -> count + value
+          _ -> count
+        end
+      end)
+
+    invalid_workflows = length(invalid_workflow_ids)
 
     summary = %{
       total_workflows: total_workflows,
       enabled_workflows: enabled_workflows,
       disabled_workflows: total_workflows - enabled_workflows,
       valid_workflows: total_workflows - invalid_workflows,
-      invalid_workflows: invalid_workflows
+      invalid_workflows: invalid_workflows,
+      total_error_count: total_error_count,
+      invalid_workflow_ids: invalid_workflow_ids,
+      disabled_workflow_ids: disabled_workflow_ids
     }
 
     {summary, nil}

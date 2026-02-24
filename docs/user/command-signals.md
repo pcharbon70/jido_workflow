@@ -31,7 +31,7 @@ For command responses emitted by CommandRuntime:
 
 - `subscription_count`
 - `run_tasks`
-- `workflow_registry_summary` (`total_workflows`, `enabled_workflows`, `disabled_workflows`, `valid_workflows`, `invalid_workflows`)
+- `workflow_registry_summary` (`total_workflows`, `enabled_workflows`, `disabled_workflows`, `valid_workflows`, `invalid_workflows`, `total_error_count`, `invalid_workflow_ids`, `disabled_workflow_ids`)
 - `run_store_summary` (`total_runs`, `by_status`)
 - `trigger_runtime_status` (`trigger_ids`, `trigger_counts`, and last sync snapshot fields when available)
 - `hook_runtime_status` (when hook runtime is available)
