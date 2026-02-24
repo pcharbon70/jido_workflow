@@ -1479,7 +1479,32 @@ defmodule Jido.Code.Workflow.CommandRuntime do
         Map.update(counts, status, 1, &(&1 + 1))
       end)
 
-    {%{total_runs: length(runs), by_status: by_status}, nil}
+    workflow_counts =
+      Enum.reduce(runs, %{}, fn run, counts ->
+        workflow_id = run.workflow_id |> to_string()
+        Map.update(counts, workflow_id, 1, &(&1 + 1))
+      end)
+
+    active_run_ids =
+      runs
+      |> Enum.filter(&(&1.status in [:running, :paused]))
+      |> Enum.map(& &1.run_id)
+      |> Enum.sort()
+
+    latest_run = List.first(runs)
+
+    summary = %{
+      total_runs: length(runs),
+      by_status: by_status,
+      workflow_counts: workflow_counts,
+      active_runs: length(active_run_ids),
+      active_run_ids: active_run_ids,
+      latest_run_id: latest_run && latest_run.run_id,
+      latest_run_status: latest_run && to_string(latest_run.status),
+      latest_workflow_id: latest_run && latest_run.workflow_id
+    }
+
+    {summary, nil}
   catch
     :exit, reason -> {nil, format_reason({:run_store_unavailable, reason})}
   end

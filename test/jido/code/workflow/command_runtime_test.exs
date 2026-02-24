@@ -1171,8 +1171,15 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
                           "workflow_registry_error" => nil,
                           "run_store_summary" => %{
                             "total_runs" => 0,
-                            "by_status" => %{}
+                            "by_status" => %{},
+                            "workflow_counts" => %{},
+                            "active_runs" => 0,
+                            "active_run_ids" => [],
+                            "latest_run_id" => nil,
+                            "latest_run_status" => nil,
+                            "latest_workflow_id" => nil
                           },
+                          "run_store_error" => nil,
                           "hook_runtime_status" => %{
                             "subscription_count" => hook_subscription_count
                           },
@@ -1189,6 +1196,115 @@ defmodule Jido.Code.Workflow.CommandRuntimeTest do
 
     assert subscription_count >= 17
     assert hook_subscription_count >= 7
+  end
+
+  test "runtime status summarizes run store activity by workflow and status", context do
+    assert :ok =
+             RunStore.record_started(
+               %{
+                 run_id: "status_run_active",
+                 workflow_id: "status_flow_a",
+                 backend: :direct,
+                 inputs: %{"value" => "one"}
+               },
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_started(
+               %{
+                 run_id: "status_run_completed",
+                 workflow_id: "status_flow_a",
+                 backend: :direct,
+                 inputs: %{"value" => "two"}
+               },
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_completed(
+               "status_run_completed",
+               %{"echo" => "two"},
+               %{workflow_id: "status_flow_a"},
+               context.run_store
+             )
+
+    assert :ok =
+             RunStore.record_started(
+               %{
+                 run_id: "status_run_paused",
+                 workflow_id: "status_flow_b",
+                 backend: :strategy,
+                 inputs: %{"value" => "three"}
+               },
+               context.run_store
+             )
+
+    assert :ok = RunStore.mark_paused("status_run_paused", %{}, context.run_store)
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "run_store_summary" => %{
+                            "total_runs" => 3,
+                            "by_status" => %{
+                              "running" => 1,
+                              "completed" => 1,
+                              "paused" => 1
+                            },
+                            "workflow_counts" => %{
+                              "status_flow_a" => 2,
+                              "status_flow_b" => 1
+                            },
+                            "active_runs" => 2,
+                            "active_run_ids" => active_run_ids,
+                            "latest_run_id" => "status_run_paused",
+                            "latest_run_status" => "paused",
+                            "latest_workflow_id" => "status_flow_b"
+                          },
+                          "run_store_error" => nil
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert active_run_ids == ["status_run_active", "status_run_paused"]
+  end
+
+  test "runtime status includes run store errors when run store is unavailable", context do
+    missing_run_store = unique_name("command_runtime_missing_run_store")
+
+    _ =
+      :sys.replace_state(
+        context.command_runtime,
+        &Map.put(&1, :run_store, missing_run_store)
+      )
+
+    assert {:ok, _published} =
+             Bus.publish(context.bus, [
+               Signal.new!("workflow.runtime.status.requested", %{}, source: "/test/client")
+             ])
+
+    assert_receive {:signal,
+                    %Signal{
+                      type: "workflow.runtime.status.accepted",
+                      data: %{
+                        "status" => %{
+                          "run_store_summary" => nil,
+                          "run_store_error" => reason
+                        }
+                      }
+                    }},
+                   5_000
+
+    assert String.contains?(reason, "run_store_unavailable")
   end
 
   test "runtime status summarizes disabled and invalid workflows with diagnostics", context do
