@@ -3,6 +3,10 @@
 /deps/
 /doc/
 /.fetch
+/jido
+/workflow
+/.pr*.body
+/.pr*.headers
 erl_crash.dump
 *.ez
 *.beam
