@@ -163,6 +163,32 @@ defmodule Jido.Code.Workflow.ValidatorTest do
              end)
     end
 
+    test "rejects whitespace-only outputs and depends_on entries" do
+      attrs = %{
+        "name" => "whitespace_step_list_entries_flow",
+        "version" => "1.0.0",
+        "steps" => [
+          %{
+            "name" => "parse_file",
+            "type" => "action",
+            "module" => "Jido.Code.Workflow.TestActions.ParseFile",
+            "outputs" => ["ast", " "],
+            "depends_on" => ["\n"]
+          }
+        ]
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "outputs", "1"] and error.code == :invalid_value
+             end)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["steps", "0", "depends_on", "0"] and error.code == :invalid_value
+             end)
+    end
+
     test "rejects whitespace-only signals.topic and return.value" do
       attrs = %{
         "name" => "whitespace_signal_topic_and_return_value_flow",
@@ -658,6 +684,26 @@ defmodule Jido.Code.Workflow.ValidatorTest do
 
       assert Enum.any?(errors, fn error ->
                error.path == ["error_handling", "0", "action"] and error.code == :required
+             end)
+    end
+
+    test "rejects whitespace-only action for non-compensation handlers" do
+      attrs = %{
+        "name" => "whitespace_non_compensation_action_flow",
+        "version" => "1.0.0",
+        "error_handling" => [
+          %{
+            "handler" => "notify:parse_file",
+            "action" => " "
+          }
+        ],
+        "steps" => []
+      }
+
+      assert {:error, errors} = Validator.validate(attrs)
+
+      assert Enum.any?(errors, fn error ->
+               error.path == ["error_handling", "0", "action"] and error.code == :invalid_value
              end)
     end
 
