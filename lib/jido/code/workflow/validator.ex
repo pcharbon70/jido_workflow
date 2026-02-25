@@ -457,6 +457,8 @@ defmodule Jido.Code.Workflow.Validator do
       errors
       |> validate_step_requirements(type, module, agent, workflow, path)
       |> maybe_add_non_empty_optional_string_error(callback_signal, path ++ ["callback_signal"])
+      |> maybe_add_non_empty_string_list_entry_errors(outputs, path ++ ["outputs"])
+      |> maybe_add_non_empty_string_list_entry_errors(depends_on, path ++ ["depends_on"])
       |> maybe_add_inclusion_error(mode, @agent_modes, path ++ ["mode"])
       |> maybe_add_minimum_integer_error(timeout_ms, 1, path ++ ["timeout_ms"])
       |> maybe_add_minimum_integer_error(max_retries, 0, path ++ ["max_retries"])
@@ -527,6 +529,26 @@ defmodule Jido.Code.Workflow.Validator do
   end
 
   defp validate_step_requirements(errors, _type, _module, _agent, _workflow, _path), do: errors
+
+  defp maybe_add_non_empty_string_list_entry_errors(errors, nil, _path), do: errors
+
+  defp maybe_add_non_empty_string_list_entry_errors(errors, values, path) when is_list(values) do
+    Enum.with_index(values)
+    |> Enum.reduce(errors, fn {value, index}, err_acc ->
+      if present_string?(value) do
+        err_acc
+      else
+        error(
+          err_acc,
+          path ++ [Integer.to_string(index)],
+          :invalid_value,
+          "#{last(path)} entries must be non-empty strings"
+        )
+      end
+    end)
+  end
+
+  defp maybe_add_non_empty_string_list_entry_errors(errors, _values, _path), do: errors
 
   defp step_allowed_keys("action", _step_types), do: @action_step_keys
   defp step_allowed_keys("agent", _step_types), do: @agent_step_keys
@@ -736,13 +758,35 @@ defmodule Jido.Code.Workflow.Validator do
 
     {action, errors} = optional_string(handler, :action, path ++ ["action"], errors)
     {inputs, errors} = optional_map_or_list(handler, :inputs, path ++ ["inputs"], errors)
-    errors = maybe_add_missing_compensation_action_error(errors, handler_name, action, path)
+
+    errors =
+      errors
+      |> maybe_add_non_empty_non_compensation_action_error(handler_name, action, path)
+      |> maybe_add_missing_compensation_action_error(handler_name, action, path)
 
     {%{"handler" => handler_name, "action" => action, "inputs" => inputs}, errors}
   end
 
   defp normalize_error_handler(_handler, path, errors) do
     {nil, error(errors, path, :invalid_type, "error handler must be a map")}
+  end
+
+  defp maybe_add_non_empty_non_compensation_action_error(errors, handler_name, action, path)
+       when is_binary(handler_name) do
+    if compensation_handler_name?(handler_name) do
+      errors
+    else
+      maybe_add_non_empty_optional_string_error(errors, action, path ++ ["action"])
+    end
+  end
+
+  defp maybe_add_non_empty_non_compensation_action_error(
+         errors,
+         _handler_name,
+         _action,
+         _path
+       ) do
+    errors
   end
 
   defp maybe_add_missing_compensation_action_error(errors, handler_name, action, path) do

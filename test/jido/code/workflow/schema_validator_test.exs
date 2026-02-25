@@ -439,6 +439,82 @@ defmodule Jido.Code.Workflow.SchemaValidatorTest do
            end)
   end
 
+  test "validate_workflow/1 rejects whitespace-only outputs and depends_on entries" do
+    attrs = %{
+      "name" => "schema_whitespace_step_list_entries_workflow",
+      "version" => "1.0.0",
+      "steps" => [
+        %{
+          "name" => "parse_file",
+          "type" => "action",
+          "module" => "Jido.Code.Workflow.TestActions.ParseFile",
+          "outputs" => ["ast", " "],
+          "depends_on" => [" "]
+        },
+        %{
+          "name" => "ai_review",
+          "type" => "agent",
+          "agent" => "code_reviewer",
+          "depends_on" => ["\n"]
+        },
+        %{
+          "name" => "apply_skill",
+          "type" => "skill",
+          "module" => "Jido.Code.Workflow.TestActions.ParseFile",
+          "outputs" => ["\t"]
+        },
+        %{
+          "name" => "child_flow",
+          "type" => "sub_workflow",
+          "workflow" => "child_pipeline",
+          "depends_on" => ["  "]
+        }
+      ]
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["steps", "0"],
+               ["steps", "0", "outputs"],
+               ["steps", "0", "outputs", "1"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["steps", "0"],
+               ["steps", "0", "depends_on"],
+               ["steps", "0", "depends_on", "0"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["steps", "1"],
+               ["steps", "1", "depends_on"],
+               ["steps", "1", "depends_on", "0"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["steps", "2"],
+               ["steps", "2", "outputs"],
+               ["steps", "2", "outputs", "0"]
+             ]
+           end)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [
+               ["steps", "3"],
+               ["steps", "3", "depends_on"],
+               ["steps", "3", "depends_on", "0"]
+             ]
+           end)
+  end
+
   test "validate_workflow/1 rejects whitespace-only signals.topic and return.value" do
     attrs = %{
       "name" => "schema_whitespace_signals_and_return_workflow",
@@ -531,6 +607,26 @@ defmodule Jido.Code.Workflow.SchemaValidatorTest do
       "error_handling" => [
         %{
           "handler" => "compensate:parse_file"
+        }
+      ],
+      "steps" => []
+    }
+
+    assert {:error, errors} = SchemaValidator.validate_workflow(attrs)
+
+    assert Enum.any?(errors, fn error ->
+             error.path in [["error_handling", "0"], ["error_handling", "0", "action"]]
+           end)
+  end
+
+  test "validate_workflow/1 rejects whitespace-only actions for non-compensation handlers" do
+    attrs = %{
+      "name" => "schema_whitespace_non_compensation_action_workflow",
+      "version" => "1.0.0",
+      "error_handling" => [
+        %{
+          "handler" => "notify:parse_file",
+          "action" => " "
         }
       ],
       "steps" => []
